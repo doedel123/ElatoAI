@@ -135,9 +135,9 @@ cp .env.example .env.local
 npm run dev
 ```
 
-4. **Choose edge server option**
+4. **Choose edge server option (FREE USAGE)**
 
-- **ELATO MODE:** Got your own ESP32 DIY hardware device? We offer a fully hosted edge server for you to use! Register your device on the [settings page](https://www.elatoai.com/home/settings/device) and it will automatically connect to our edge server. Check out our [Pricing page](https://www.elatoai.com/#pricing) for more details.
+- **ELATO MODE:** Got your own ESP32 DIY hardware device? We offer a fully hosted server for free for up to 30 minutes per month. Register your device on the [settings page](https://www.elatoai.com/home/settings/device) and it will automatically connect to our edge server. Check out our [Pricing page](https://www.elatoai.com/#pricing) for more details.
 
 - **DEV MODE:** Alternatively, you can run your own edge server locally by following the instructions below and in the [Deno server README](server-deno/README.md).
 
