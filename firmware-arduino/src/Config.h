@@ -97,6 +97,7 @@ extern volatile bool sleepRequested;
 extern const char *CA_cert;
 extern const char *Vercel_CA_cert;
 void factoryResetDevice();
+void resetAuth();
 void processSleepRequest();
 
 #endif

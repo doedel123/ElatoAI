@@ -82,4 +82,10 @@ void factoryResetDevice() {
     }
 }
 
+void resetAuth() {
+    preferences.begin("auth", false);
+    preferences.putString("auth_token", "");
+    preferences.end();
+}
+
 #endif

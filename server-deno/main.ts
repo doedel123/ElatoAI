@@ -4,7 +4,7 @@ import type {
     WebSocket as WSWebSocket,
     WebSocketServer as _WebSocketServer,
 } from "npm:@types/ws";
-import { authenticateUser } from "./utils.ts";
+import { authenticateUser, elevenLabsApiKey } from "./utils.ts";
 import {
     createFirstMessage,
     createSystemPrompt,
@@ -15,6 +15,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { isDev } from "./utils.ts";
 import { connectToOpenAI } from "./models/openai.ts";
 import { connectToGemini } from "./models/gemini.ts";
+import { connectToElevenLabs } from "./models/elevenlabs.ts";
 
 const server = createServer();
 
@@ -73,6 +74,21 @@ wss.on("connection", async (ws: WSWebSocket, payload: IPayload) => {
                 connectionPcmFile,
                 firstMessage,
                 systemPrompt,
+            );
+            break;
+        case "elevenlabs":
+            const agentId = user.personality?.oai_voice ?? "";
+            
+            if (!elevenLabsApiKey) {
+                throw new Error("ELEVENLABS_API_KEY environment variable is required");
+            }
+            
+            await connectToElevenLabs(
+                ws,
+                payload,
+                connectionPcmFile,
+                agentId,
+                elevenLabsApiKey,
             );
             break;
         default:

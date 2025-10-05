@@ -26,6 +26,7 @@ encoder.bitrate = 12000;
 
 export const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
 export const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
+export const elevenLabsApiKey = Deno.env.get("ELEVENLABS_API_KEY");
 
 export { encoder, FRAME_SIZE };
 

@@ -1,30 +1,49 @@
-<div align="center" style="margin: 20px 0;">
-  <a href="https://cookbook.openai.com/examples/voice_solutions/running_realtime_api_speech_on_esp32_arduino_edge_runtime_elatoai" target="_blank">
-    <img src="https://img.shields.io/badge/OpenAI-Cookbook-blue?style=for-the-badge&logo=openai" alt="OpenAI" style="margin: 0 10px;">
-  </a>
-  <a href="https://news.ycombinator.com/item?id=43762409" target="_blank">
-    <img src="https://img.shields.io/badge/Hacker_News_Launch-white?style=for-the-badge&logo=ycombinator" alt="Hacker News Launch" style="margin: 0 10px;">
-  </a>
-  <a href="https://blog.adafruit.com/2025/05/06/elatoai-realtime-speech-ai-agents-for-esp32/" target="_blank">
-    <img src="https://img.shields.io/badge/Adafruit-Blog-red?style=for-the-badge&logo=adafruit" alt="Adafruit" style="margin: 0 10px;">
-  </a>
-</div>
+<!-- 
+<img src="assets/ks.png" alt="Elato Logo" width="100%">
+
+
+### 🚀 Kickstarter Pre-Launch
+
+Elato is heading to Kickstarter! After a year of prototyping and shipping early units, we’re preparing our very first campaign. Your early support means a lot. Even one click helps us bring Elato to more people.
+
+➡️ [Kickstarter Pre-launch Page](https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices) — click **“Notify me on launch”** to be first in line when we go live.  
+ -->
+<a href="https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices" target="_blank">
+ <img src="assets/ks.png" alt="Elato Logo" width="100%">
+</a>
+
+<br />
 
 <div align="center">
 <h3>
 
-[Homepage](https://elatoai.com/) | [Buy AI device](https://www.elatoai.com/products) | [Buy AI Dev Kit](https://www.elatoai.com/products/ai-devkit)
+[🏠 Homepage](https://elatoai.com/)  |  [🚀 Kickstarter](https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices)
 
 </h3>
 </div>
 
+<br />
 
-<img src="assets/elato-alien.png" alt="Elato Logo" width="100%">
 
-# 🚀 ElatoAI: Realtime Speech AI Agents for ESP32
+# 👾 ElatoAI: Realtime Speech AI Agents for ESP32
 
-Realtime AI Speech powered by **OpenAI Realtime API** and **Gemini Live API**, ESP32, Secure WebSockets, and Deno Edge Functions for >15-minute uninterrupted global conversations
+Realtime AI Speech powered by **OpenAI Realtime API**, **Eleven Labs AI Agents**, and **Gemini Live API**, ESP32, Secure WebSockets, and Deno Edge Functions for >15-minute uninterrupted global conversations
 
+<div align="center" style="margin: 20px 0;">
+  <!-- <a href="https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices" target="_blank">
+    <img src="https://img.shields.io/badge/Kickstarter_Pre_Launch-white?style=for-the-badge&logo=kickstarter" alt="Elato Kickstarter Prelaunch" style="margin: 0 10px;">
+  </a> -->
+    <a href="https://cookbook.openai.com/examples/voice_solutions/running_realtime_api_speech_on_esp32_arduino_edge_runtime_elatoai" target="_blank">
+  <img src="https://img.shields.io/badge/OpenAI-Cookbook-violet?style=for-the-badge&logo=openai&logoColor=white&labelColor=black" alt="OpenAI" style="margin: 0 10px;">
+</a>
+  <a href="https://news.ycombinator.com/item?id=43762409" target="_blank">
+    <img src="https://img.shields.io/badge/Hacker_News_Launch-white?style=for-the-badge&logo=ycombinator" alt="Hacker News Launch" style="margin: 0 10px;">
+  </a>
+
+  <a href="https://blog.adafruit.com/2025/05/06/elatoai-realtime-speech-ai-agents-for-esp32/" target="_blank">
+    <img src="https://img.shields.io/badge/Adafruit-Product-red?style=for-the-badge&logo=adafruit" alt="Adafruit" style="margin: 0 10px;">
+  </a>
+</div>
 
 <div align="center">
 
@@ -36,6 +55,7 @@ Realtime AI Speech powered by **OpenAI Realtime API** and **Gemini Live API**, E
 
 </div>
 
+
 ## ⚡️ With SOTA Realtime AI Speech Models on an ESP32
 
 <div align="center" class="flex flex-row gap-4">
@@ -44,10 +64,12 @@ Realtime AI Speech powered by **OpenAI Realtime API** and **Gemini Live API**, E
 
 <img src="assets/gemini.png" alt="Gemini Live API" width="45%">
 
+<img src="assets/elevenlabs.svg" alt="Gemini Live API" width="45%">
+
 </div>
 
 
-## 📽️ Demo Video [(✨ Gemini demo)](https://youtu.be/_zUBue3pfVI)
+## 📽️ Demo Video ([✨ Gemini demo](https://youtu.be/_zUBue3pfVI), [Eleven Labs Demo](https://youtu.be/7LKTIuEW-hg))
 
 <div align="center">
     <a href="https://www.youtube.com/watch?v=o1eIAwVll5I" target="_blank">
@@ -55,7 +77,7 @@ Realtime AI Speech powered by **OpenAI Realtime API** and **Gemini Live API**, E
   </a>
 </div>
 
-Video links: [OpenAI Demo](https://youtu.be/o1eIAwVll5I) | [Gemini Demo](https://youtu.be/_zUBue3pfVI)
+Video links: [OpenAI Demo](https://youtu.be/o1eIAwVll5I) | [Gemini Demo](https://youtu.be/_zUBue3pfVI) | [Eleven Labs Demo](https://youtu.be/7LKTIuEW-hg)
 
 ## 👷‍♀️ DIY Hardware Design
 
@@ -69,6 +91,10 @@ Control your ESP32 AI device from your phone with the Elato AI webapp.
 
 | Select from a list of AI characters | Talk to your AI with real-time responses | Create personalized AI characters |
 |:--:|:--:|:--:|
+
+## ⭐️ Key Voice AI Features
+<img src="assets/features.png" alt="App Screenshots" width="100%">
+
 
 
 ## 🚀 Quick Start
@@ -109,9 +135,9 @@ cp .env.example .env.local
 npm run dev
 ```
 
-4. **Choose edge server option**
+4. **Choose edge server option (FREE USAGE)**
 
-- **ELATO MODE:** Got your own ESP32 DIY hardware device? We offer a fully hosted edge server for you to use! Register your device on the [settings page](https://www.elatoai.com/home/settings/device) and it will automatically connect to our edge server. Check out our [Pricing page](https://www.elatoai.com/#pricing) for more details.
+- **ELATO MODE:** Got your own ESP32 DIY hardware device? We offer a fully hosted server for free for up to 30 minutes per month. Register your device on the [settings page](https://www.elatoai.com/home/settings/device) and it will automatically connect to our edge server. Check out our [Pricing page](https://www.elatoai.com/#pricing) for more details.
 
 - **DEV MODE:** Alternatively, you can run your own edge server locally by following the instructions below and in the [Deno server README](server-deno/README.md).
 
@@ -129,6 +155,7 @@ cp .env.example .env
 # SUPABASE_KEY=<your-supabase-anon-key>
 # OPENAI_API_KEY=<your-openai-api-key>
 # GEMINI_API_KEY=<your-gemini-api-key>
+# ELEVENLABS_API_KEY=<your-elevenlabs-api-key
 
 # Run the server at port 8000
 deno run -A --env-file=.env main.ts
@@ -153,13 +180,13 @@ Once your Wifi credentials are configured, turn the device off and on again and 
 ElatoAI consists of three main components:
 
 1. **Frontend Client** (`Next.js` hosted on Vercel) - to create and talk to your AI agents and 'send' it to your ESP32 device
-2. **Edge Server Functions** (`Deno` running on Deno/Supabase Edge) - to handle the websocket connections from the ESP32 device and the OpenAI and Gemini API calls
-3. **ESP32 IoT Client** (`PlatformIO/Arduino`) - to receive the websocket connections from the Edge Server Functions and send audio to the OpenAI and Gemini API via the Deno edge server.
+2. **Edge Server Functions** (`Deno` running on Deno/Supabase Edge) - to handle the websocket connections from the ESP32 device and the LLM Provider API calls
+3. **ESP32 IoT Client** (`PlatformIO/Arduino`) - to receive the websocket connections from the Edge Server Functions and send audio to the LLM Provider via the Deno edge server.
 
 
 ## 🌟 Full list of features
 
-1. **Realtime Speech-to-Speech**: Instant speech conversion powered by OpenAI's Realtime API and Gemini's Live API.
+1. **Realtime Speech-to-Speech**: Instant speech conversion powered by OpenAI's Realtime API, Gemini's Live API and Eleven Labs AI Agents.
 2. **Create Custom AI Agents**: Create custom agents with different personalities and voices.
 3. **Customizable Voices**: Choose from a variety of voices and personalities.
 4. **Secure WebSockets**: Reliable, encrypted WebSocket communication.
@@ -181,6 +208,7 @@ ElatoAI consists of three main components:
 20. **OAuth for Web client**: OAuth for your users to manage their AI characters and devices.
 21. **Pitch Factor**: Control the pitch of the AI's voice from the NextJS webapp to create cartoon-like voices.
 22. **Tool calling**: Call tools and functions from the ESP32 device to the Deno Edge Functions for a complete voice AI agent.
+23. **Tap to turn on**: Tap the touchpad to turn it on from sleep.
 
 ## 🛠 Tech Stack
 
@@ -193,10 +221,6 @@ ElatoAI consists of three main components:
 | Audio Codec     | Opus                                     |
 | Communication   | Secure WebSockets                        |
 | Libraries       | ArduinoJson, WebSockets, AsyncWebServer, ESP32_Button, Arduino Audio Tools, ArduinoLibOpus        |
-
-## [📈 Core Use Cases](./docs/Usecases.md)
-
-## [🤖🤖🤖 Getting Started with multiple devices](./docs/MultipleDevices.md)
 
 ## High-Level Flowchart
 
@@ -211,8 +235,10 @@ flowchart TD
   ESP32[ESP32 Device] -->|WebSocket| Edge[Deno Edge Function]
   Edge -->|OpenAI API| OpenAI[OpenAI Realtime API]
   Edge -->|Gemini API| Gemini[Gemini Live API]
+  Edge -->|ElevenLabs API| ElevenLabs[ElevenLabs AI Agents]
   OpenAI --> Edge
   Gemini --> Edge
+  ElevenLabs --> Edge
   Edge -->|WebSocket| ESP32
   ESP32 --> UserOutput
 ```
@@ -254,6 +280,10 @@ lib_deps =
     https://github.com/pschatzmann/arduino-libopus.git#a1.1.0
 ```
 
+## Additional Docs
+- [⏸️ Using the Eleven Labs API](./docs/ElevenLabs.md)
+- [📈 Core Use Cases](./docs/Usecases.md)
+- [🤖🤖🤖 Getting Started with multiple devices](./docs/MultipleDevices.md)
 
 ## 📊 Important Stats
 
@@ -281,7 +311,7 @@ lib_deps =
 2. Adding Arduino IDE support
 3. Add Hume API client for emotion detection
 4. Add MCP support on Deno Edge
-5. Plug in ElevenLabs API for voice generation
+5. Plug in Eleven Labs API for voice generation
 6. Add Azure OpenAI Support (easy pickings)
 
 We welcome contributions

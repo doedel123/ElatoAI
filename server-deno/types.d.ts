@@ -26,7 +26,7 @@ declare global {
         user_code: string;
     }
 
-    type ModelProvider = "openai" | "gemini";
+    type ModelProvider = "openai" | "gemini" | "elevenlabs";
 
     type GeminiVoice =
         | "Zephyr"
@@ -70,13 +70,17 @@ declare global {
         | "sage"
         | "verse";
 
+    /**
+     * Note: oai_voice is essentially the name of the voice. 
+     * the naming here sucks, please change it
+     */
     interface IPersonality {
         personality_id: string;
         is_doctor: boolean;
         is_child_voice: boolean;
         is_story: boolean;
         key: string;
-        oai_voice: OaiVoice | GeminiVoice;
+        oai_voice: string;
         provider: ModelProvider;
         voice_description: string;
         title: string;

@@ -116,7 +116,7 @@ declare global {
             emoji?: string;
         };
 
-    type ModelProvider = "openai" | "gemini";
+    type ModelProvider = "openai" | "gemini" | "elevenlabs";
 
     type GeminiVoice =
         | "Zephyr"
@@ -161,13 +161,17 @@ declare global {
         | "verse";
 
     // characters <-> personalities table
+    /**
+     * oai_voice is for the name of any voice. both gemini and openai use this.
+     * forgot to refactor this, update it for your setup
+     */
     interface IPersonality {
         personality_id?: string;
         is_doctor: boolean;
         is_child_voice: boolean;
         is_story: boolean;
         key: string;
-        oai_voice: OaiVoice | GeminiVoice;
+        oai_voice: string;
         provider: ModelProvider;
         title: string;
         subtitle: string;
