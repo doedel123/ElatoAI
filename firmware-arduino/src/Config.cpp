@@ -33,11 +33,11 @@ volatile bool sleepRequested = false;
  */
 
 #ifdef DEV_MODE
-const char *ws_server = "192.168.1.41";
+const char *ws_server = "192.168.68.119";
 const uint16_t ws_port = 8000;
 const char *ws_path = "/";
 // Backend server details 
-const char *backend_server = "192.168.1.41";
+const char *backend_server = "192.168.68.119";
 const uint16_t backend_port = 3000;
 
 #elif defined(PROD_MODE)
@@ -87,6 +87,7 @@ const gpio_num_t BUTTON_PIN = GPIO_NUM_2; // Only RTC IO are allowed - ESP32 Pin
 
 // ----------------- SSL Certificates -----------------
 
+
 #ifdef PROD_MODE
 
 // add the CA cert for your backend server here `backend_server`
@@ -103,6 +104,7 @@ const char *CA_cert = R"EOF(
 <YOUR TALKEDGE CERTIFICATE HERE>
 -----END CERTIFICATE-----
 )EOF";
+
 
 #elif defined(ELATO_MODE)
 

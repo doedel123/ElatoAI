@@ -1,13 +1,3 @@
-<!-- 
-<img src="assets/ks.png" alt="Elato Logo" width="100%">
-
-
-### 🚀 Kickstarter Pre-Launch
-
-Elato is heading to Kickstarter! After a year of prototyping and shipping early units, we’re preparing our very first campaign. Your early support means a lot. Even one click helps us bring Elato to more people.
-
-➡️ [Kickstarter Pre-launch Page](https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices) — click **“Notify me on launch”** to be first in line when we go live.  
- -->
 <a href="https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices" target="_blank">
  <img src="assets/ks.png" alt="Elato Logo" width="100%">
 </a>
@@ -17,7 +7,7 @@ Elato is heading to Kickstarter! After a year of prototyping and shipping early 
 <div align="center">
 <h3>
 
-[🏠 Homepage](https://elatoai.com/)  |  [🚀 Kickstarter](https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices)
+[🚀 Kickstarter](https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices) | [🏠 Homepage](https://elatoai.com/) 
 
 </h3>
 </div>
@@ -27,7 +17,7 @@ Elato is heading to Kickstarter! After a year of prototyping and shipping early 
 
 # 👾 ElatoAI: Realtime Speech AI Agents for ESP32
 
-Realtime AI Speech powered by **OpenAI Realtime API**, **Eleven Labs AI Agents**, and **Gemini Live API**, ESP32, Secure WebSockets, and Deno Edge Functions for >15-minute uninterrupted global conversations
+Realtime AI Speech powered by SoTA AI voice models like **OpenAI Realtime API**, **Eleven Labs AI Agents**, **Gemini Live API**, **Hume AI EVI-4**, on ESP32, with Secure WebSockets, and Deno Edge Functions for >15-minute uninterrupted conversations globally.
 
 <div align="center" style="margin: 20px 0;">
   <!-- <a href="https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices" target="_blank">
@@ -47,7 +37,10 @@ Realtime AI Speech powered by **OpenAI Realtime API**, **Eleven Labs AI Agents**
 
 <div align="center">
 
-[![Discord](https://img.shields.io/badge/Discord-101_members-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/KJWxDPBRUj)
+<!-- [![Discord](https://img.shields.io/badge/Discord-115_members-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/KJWxDPBRUj) -->
+<!-- [![Discord](https://img.shields.io/discord/1088574461848064160?style=flat&logo=discord&logoColor=white&label=Discord%20(120%20members)&color=5865F2)](https://discord.gg/KJWxDPBRUj) -->
+[![Discord](https://img.shields.io/discord/1088574461848064160?style=flat&logo=discord&logoColor=white&label=Online%20🟢&color=5865F2&status=online)](https://discord.gg/KJWxDPBRUj)
+[![Discord Total](https://img.shields.io/badge/115_members-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/KJWxDPBRUj)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://opensource.org/licenses/MIT)
 ![Node.js](https://img.shields.io/badge/Node.js-22.13.0-yellow.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-14.2.7-brightgreen.svg)
@@ -56,7 +49,7 @@ Realtime AI Speech powered by **OpenAI Realtime API**, **Eleven Labs AI Agents**
 </div>
 
 
-## ⚡️ With SOTA Realtime AI Speech Models on an ESP32
+## ⚡️ `With SOTA Realtime AI Speech Models on an ESP32`
 
 <div align="center" class="flex flex-row gap-4">
 
@@ -64,12 +57,14 @@ Realtime AI Speech powered by **OpenAI Realtime API**, **Eleven Labs AI Agents**
 
 <img src="assets/gemini.png" alt="Gemini Live API" width="45%">
 
-<img src="assets/elevenlabs.svg" alt="Gemini Live API" width="45%">
+<img src="assets/humeai.avif" alt="Hume AI EVI4" width="45%">
+
+<img src="assets/elevenlabs.svg" alt="Eleven Labs AI Agents" width="45%">
 
 </div>
 
 
-## 📽️ Demo Video ([✨ Gemini demo](https://youtu.be/_zUBue3pfVI), [Eleven Labs Demo](https://youtu.be/7LKTIuEW-hg))
+## 📽️ Demo Video ([✨ Gemini](https://youtu.be/_zUBue3pfVI), [Eleven Labs](https://youtu.be/7LKTIuEW-hg), [Hume AI](https://youtu.be/Gtann5pdV0I))
 
 <div align="center">
     <a href="https://www.youtube.com/watch?v=o1eIAwVll5I" target="_blank">
@@ -77,13 +72,13 @@ Realtime AI Speech powered by **OpenAI Realtime API**, **Eleven Labs AI Agents**
   </a>
 </div>
 
-Video links: [OpenAI Demo](https://youtu.be/o1eIAwVll5I) | [Gemini Demo](https://youtu.be/_zUBue3pfVI) | [Eleven Labs Demo](https://youtu.be/7LKTIuEW-hg)
+Video links: [OpenAI Demo](https://youtu.be/o1eIAwVll5I) | [Gemini Demo](https://youtu.be/_zUBue3pfVI) | [Eleven Labs Demo](https://youtu.be/7LKTIuEW-hg) | [Hume AI EVI-4 Demo](https://youtu.be/Gtann5pdV0I)
 
-## 👷‍♀️ DIY Hardware Design
+## `👷‍♀️ DIY Hardware Design`
 
 <img src="assets/pcb-design.png" alt="Hardware Setup" width="100%">
 
-## 📱 App Design
+## `📱 App Design`
 
 Control your ESP32 AI device from your phone with the Elato AI webapp.
 
@@ -92,12 +87,12 @@ Control your ESP32 AI device from your phone with the Elato AI webapp.
 | Select from a list of AI characters | Talk to your AI with real-time responses | Create personalized AI characters |
 |:--:|:--:|:--:|
 
-## ⭐️ Key Voice AI Features
+## `⭐️ Key Voice AI Features`
 <img src="assets/features.png" alt="App Screenshots" width="100%">
 
 
 
-## 🚀 Quick Start
+## `🚀 Quick Start`
 
 <a href="https://www.youtube.com/watch?v=bXrNRpGOJWw">
   <img src="https://img.shields.io/badge/Quickstart%20Tutorial-YouTube-yellow?style=for-the-badge&logo=youtube" alt="Watch Demo on YouTube">
@@ -155,7 +150,8 @@ cp .env.example .env
 # SUPABASE_KEY=<your-supabase-anon-key>
 # OPENAI_API_KEY=<your-openai-api-key>
 # GEMINI_API_KEY=<your-gemini-api-key>
-# ELEVENLABS_API_KEY=<your-elevenlabs-api-key
+# ELEVENLABS_API_KEY=<your-elevenlabs-api-key>
+# HUME_API_KEY=<your-hume-api-key>
 
 # Run the server at port 8000
 deno run -A --env-file=.env main.ts
@@ -175,7 +171,7 @@ Build and upload the firmware to your ESP32 device. The ESP32 should open an `EL
 
 Once your Wifi credentials are configured, turn the device off and on again and it should connect to your Wifi and your server. Now you can talk to your AI Character!
 
-## Project Architecture
+## `Project Architecture`
 
 ElatoAI consists of three main components:
 
@@ -184,9 +180,9 @@ ElatoAI consists of three main components:
 3. **ESP32 IoT Client** (`PlatformIO/Arduino`) - to receive the websocket connections from the Edge Server Functions and send audio to the LLM Provider via the Deno edge server.
 
 
-## 🌟 Full list of features
+## `🌟 Full list of features`
 
-1. **Realtime Speech-to-Speech**: Instant speech conversion powered by OpenAI's Realtime API, Gemini's Live API and Eleven Labs AI Agents.
+1. **Realtime Speech-to-Speech**: Instant speech conversion powered by OpenAI's Realtime API, Gemini's Live API, Eleven Labs Conversational AI Agents and Hume AI EVI4.
 2. **Create Custom AI Agents**: Create custom agents with different personalities and voices.
 3. **Customizable Voices**: Choose from a variety of voices and personalities.
 4. **Secure WebSockets**: Reliable, encrypted WebSocket communication.
@@ -210,7 +206,7 @@ ElatoAI consists of three main components:
 22. **Tool calling**: Call tools and functions from the ESP32 device to the Deno Edge Functions for a complete voice AI agent.
 23. **Tap to turn on**: Tap the touchpad to turn it on from sleep.
 
-## 🛠 Tech Stack
+## `🛠 Tech Stack`
 
 | Component       | Technology Used                          |
 |-----------------|------------------------------------------|
@@ -222,7 +218,7 @@ ElatoAI consists of three main components:
 | Communication   | Secure WebSockets                        |
 | Libraries       | ArduinoJson, WebSockets, AsyncWebServer, ESP32_Button, Arduino Audio Tools, ArduinoLibOpus        |
 
-## High-Level Flowchart
+## `High-Level Flowchart`
 
 ```mermaid
 flowchart TD
@@ -236,15 +232,17 @@ flowchart TD
   Edge -->|OpenAI API| OpenAI[OpenAI Realtime API]
   Edge -->|Gemini API| Gemini[Gemini Live API]
   Edge -->|ElevenLabs API| ElevenLabs[ElevenLabs AI Agents]
+  Edge -->|Hume API| Hume[Hume AI EVI4]
   OpenAI --> Edge
   Gemini --> Edge
   ElevenLabs --> Edge
+  Hume --> Edge
   Edge -->|WebSocket| ESP32
   ESP32 --> UserOutput
 ```
 
 
-## Project Structure
+## `Project Structure`
 
 ```mermaid
 graph TD
@@ -262,7 +260,7 @@ graph TD
   esp32 --> ESPAsyncWebServer[ESPAsyncWebServer]
 ```
 
-## ⚙️ PlatformIO Config
+## `⚙️ PlatformIO Config`
 
 ```ini
 [env:esp32-s3-devkitc-1]
@@ -280,39 +278,41 @@ lib_deps =
     https://github.com/pschatzmann/arduino-libopus.git#a1.1.0
 ```
 
-## Additional Docs
+## `Additional Docs`
 - [⏸️ Using the Eleven Labs API](./docs/ElevenLabs.md)
 - [📈 Core Use Cases](./docs/Usecases.md)
 - [🤖🤖🤖 Getting Started with multiple devices](./docs/MultipleDevices.md)
+- [🚀 Deploying your application](./docs/Deploy.md)
 
-## 📊 Important Stats
+## `📊 Important Stats`
 
 - ⚡️ **Latency**: <2s round-trip globally
-- 🎧 **Audio Quality**: Opus codec at 12kbps (high clarity)
-- ⏳ **Uninterrupted Conversations**: Up to 10 minutes continuous conversations
-- 🌎 **Global Availability**: Optimized with edge computing with Deno
+- 🎧 **Audio Quality**: Opus codec at 12kbps (high clarity) 24kHz sampling rate
+- ⏳ **Uninterrupted Conversations**: Up to 15 minutes continuous conversations globally
+- 🌎 **Global Availability**: Optimized with edge computing
 
-## 🛡 Security
+## `🛡 Security`
 
 - Secure WebSockets (WSS) for encrypted data transfers
 - Optional: API Key encryption with 256-bit AES
 - Supabase DB for secure authentication
 - Postgres RLS for all tables
 
-## 🚫 Limitations
+## `🚫 Limitations`
 - 3-4s Cold start time while connecting to edge server
 - Tested with up to 17 minutes of uninterrupted conversations
 - Edge server stops when wall clock time is exceeded
 - No speech interruption detection on ESP32
 
-## 🤝 Contributing
+## `🤝 Contributing`
 
 1. Looking for Speech Interruption detection on ESP32
 2. Adding Arduino IDE support
-3. Add Hume API client for emotion detection
+3. ~~Add Hume API client for emotion detection~~
 4. Add MCP support on Deno Edge
-5. Plug in Eleven Labs API for voice generation
-6. Add Azure OpenAI Support (easy pickings)
+5. ~~Plug in Eleven Labs API for voice generation~~
+6. Add Azure OpenAI Support (easy pickens)
+7. Add Cartesia Support (easy pickens)
 
 We welcome contributions
 - Fork this repository.
@@ -322,11 +322,11 @@ We welcome contributions
 - Open a PR
 
 
-## License
+## `License`
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Star History
+## `Star History`
 
 <div align="center">
    <img src="assets/star-history.png" alt="Star History" width="100%">
