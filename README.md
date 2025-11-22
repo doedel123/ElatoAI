@@ -7,7 +7,7 @@
 <div align="center">
 <h3>
 
-[🚀 Kickstarter](https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices) | [🏠 Homepage](https://elatoai.com/) 
+[🚀 Kickstarter (launching soon!)](https://www.kickstarter.com/projects/elatoai/elato-make-toys-talk-with-ai-voices) | [🏠 Homepage](https://elatoai.com/) 
 
 </h3>
 </div>
@@ -39,8 +39,8 @@ Realtime AI Speech powered by SoTA AI voice models like **OpenAI Realtime API**,
 
 <!-- [![Discord](https://img.shields.io/badge/Discord-115_members-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/KJWxDPBRUj) -->
 <!-- [![Discord](https://img.shields.io/discord/1088574461848064160?style=flat&logo=discord&logoColor=white&label=Discord%20(120%20members)&color=5865F2)](https://discord.gg/KJWxDPBRUj) -->
-[![Discord](https://img.shields.io/discord/1088574461848064160?style=flat&logo=discord&logoColor=white&label=Online%20🟢&color=5865F2&status=online)](https://discord.gg/KJWxDPBRUj)
-[![Discord Total](https://img.shields.io/badge/115_members-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/KJWxDPBRUj)
+[![Discord Total](https://img.shields.io/badge/Discord-120_members-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/KJWxDPBRUj)
+[![Discord](https://img.shields.io/discord/1088574461848064160?style=flat&logo=discord&logoColor=white&label=🟢&color=5865F2&status=online)](https://discord.gg/KJWxDPBRUj)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://opensource.org/licenses/MIT)
 ![Node.js](https://img.shields.io/badge/Node.js-22.13.0-yellow.svg)
 ![Next.js](https://img.shields.io/badge/Next.js-14.2.7-brightgreen.svg)
@@ -197,7 +197,7 @@ ElatoAI consists of three main components:
 13. **Volume Control**: Control the volume of the ESP32 speaker from the NextJS webapp.
 14. **Realtime Transcripts**: The realtime transcripts of your conversations are stored in the Supabase DB.
 15. **OTA Updates**: Over the Air Updates for the ESP32 firmware.
-16. **Wifi Management with captive portal**: Connect to your Wifi network from the ESP32 device.
+16. **Wifi Management with captive portal**: Connect to your Wifi network or Hotspot from the ESP32 device.
 17. **Factory Reset**: Factory reset the ESP32 device from the NextJS webapp.
 18. **Button and Touch Support**: Use the button OR touch sensor to control the ESP32 device.
 19. **No PSRAM Required**: The ESP32 device does not require PSRAM to run the speech to speech AI.
