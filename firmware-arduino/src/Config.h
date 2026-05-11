@@ -12,12 +12,19 @@
 // Pick one of the following (DEV_MODE, PROD_MODE, ELATO_MODE) , comment the rest
 // For ELATO_MODE, you will need to register your DIY Hardware on the Elato website
 
-#define DEV_MODE
+// #define DEV_MODE
 // #define PROD_MODE
-// #define ELATO_MODE
+#define ELATO_MODE
+
+// ---------- CHOOSE YOUR VOICE SERVER ----------
+// Keep this separate from DEV/PROD/ELATO so the deployment mode and the voice backend stay independent.
+// Pick one backend for websocket voice traffic.
+
+// #define VOICE_SERVER_DENO
+#define VOICE_SERVER_CLOUDFLARE
 
 
-// ---------- Touch mode ----------
+// ---------- CHOOSE YOUR INPUT MODE ----------
 // If you want to use the touch sensor to wake up the device, uncomment the following line
 // If you want to use the button to wake up the device, comment the following line
 #define TOUCH_MODE
@@ -71,6 +78,7 @@ extern const uint16_t backend_port;
 
 // I2S and Audio parameters
 extern const uint32_t SAMPLE_RATE;
+extern const uint32_t MIC_SAMPLE_RATE;
 
 extern const int BLUE_LED_PIN;
 extern const int RED_LED_PIN;
