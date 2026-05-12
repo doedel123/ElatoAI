@@ -21,9 +21,11 @@
     "npm:@supabase/storage-js@2.12.1": "2.12.1",
     "npm:@supabase/storage-js@2.7.1": "2.7.1",
     "npm:@types/node@*": "22.13.0",
-    "npm:@types/ws@*": "8.5.14",
+    "npm:@types/ws@*": "8.18.1",
+    "npm:@types/ws@8.5.14": "8.5.14",
     "npm:wavefile@*": "11.0.0",
-    "npm:ws@*": "8.18.0"
+    "npm:ws@*": "8.18.3",
+    "npm:ws@8.18.0": "8.18.0"
   },
   "jsr": {
     "@std/assert@1.0.14": {
@@ -76,7 +78,7 @@
       "dependencies": [
         "@modelcontextprotocol/sdk",
         "google-auth-library",
-        "ws@8.18.0",
+        "ws@8.18.3",
         "zod",
         "zod-to-json-schema"
       ]
@@ -153,8 +155,8 @@
       "dependencies": [
         "@supabase/node-fetch",
         "@types/phoenix",
-        "@types/ws@8.5.14",
-        "ws@8.18.0"
+        "@types/ws@8.18.1",
+        "ws@8.18.3"
       ]
     },
     "@supabase/realtime-js@2.15.5": {
@@ -803,6 +805,7 @@
     },
     "uuid@9.0.1": {
       "integrity": "sha512-b+1eJOlsR9K8HJpow9Ok3fiWOWSIcIzXodvv0rQjVoOVNpWMpxf1wZNpt4y9h10odCNrqnYp1OBzRktckBe3sA==",
+      "deprecated": true,
       "bin": true
     },
     "vary@1.1.2": {

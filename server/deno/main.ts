@@ -1,8 +1,14 @@
 /// <reference path="./types.d.ts" />
 
 import { createServer } from 'node:http';
-import { WebSocketServer } from 'npm:ws';
-import type { WebSocket as WSWebSocket, WebSocketServer as _WebSocketServer } from 'npm:@types/ws';
+import type { ServerResponse } from 'node:http';
+import { WebSocketServer } from 'npm:ws@8.18.0';
+import type {
+    WebSocket as WSWebSocket,
+    WebSocketServer as _WebSocketServer,
+} from 'npm:@types/ws@8.5.14';
+import * as jose from 'https://deno.land/x/jose@v5.9.6/index.ts';
+import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { authenticateUser } from './utils.ts';
 import {
     createFirstMessage,
@@ -18,11 +24,115 @@ import { connectToElevenLabs } from './models/elevenlabs.ts';
 import { connectToHume } from './models/hume.ts';
 import { connectToGrok } from './models/grok.ts';
 
-const server = createServer((req, res) => {
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseKey = Deno.env.get('SUPABASE_KEY')!;
+
+function sendJson(
+    res: ServerResponse,
+    status: number,
+    payload: unknown,
+) {
+    res.writeHead(status, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+    });
+    res.end(JSON.stringify(payload));
+}
+
+async function getUserByMacAddress(macAddress: string): Promise<IUser | null> {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data, error } = await supabase.from('devices').select(
+        '*, user:user_id(*)',
+    ).eq('mac_address', macAddress).single();
+    if (error) {
+        throw new Error(error.message);
+    }
+    return data?.user as IUser | null;
+}
+
+async function getDevUser(): Promise<IUser | null> {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data, error } = await supabase.from('users').select('*').eq(
+        'email',
+        'admin@elatoai.com',
+    ).single();
+    if (error) {
+        throw new Error(error.message);
+    }
+    return data as IUser | null;
+}
+
+async function createSupabaseToken(user: IUser): Promise<string> {
+    const jwtSecretKey = Deno.env.get('JWT_SECRET_KEY');
+    if (!jwtSecretKey) {
+        throw new Error('JWT_SECRET_KEY not configured');
+    }
+
+    const payload = {
+        email: user.email,
+        user_id: user.user_id,
+        created_time: new Date().toISOString(),
+    };
+    const secret = new TextEncoder().encode(jwtSecretKey);
+
+    return await new jose.SignJWT({
+        role: 'authenticated',
+        email: user.email,
+        user_metadata: payload,
+    })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setAudience('authenticated')
+        .setSubject(user.user_id)
+        .setIssuedAt()
+        .sign(secret);
+}
+
+async function handleGenerateAuthToken(
+    url: URL,
+    res: ServerResponse,
+) {
+    const macAddress = url.searchParams.get('macAddress');
+    if (!macAddress) {
+        sendJson(res, 400, { error: 'MAC address is required' });
+        return;
+    }
+
+    const skipDeviceRegistration = Deno.env.get('SKIP_DEVICE_REGISTRATION') === 'True' ||
+        Deno.env.get('NEXT_PUBLIC_SKIP_DEVICE_REGISTRATION') === 'True';
+
+    const user = skipDeviceRegistration
+        ? await getDevUser()
+        : await getUserByMacAddress(macAddress);
+    if (!user) {
+        sendJson(res, 400, { error: 'User not found' });
+        return;
+    }
+
+    const token = await createSupabaseToken(user);
+    sendJson(res, 200, { token });
+}
+
+const server = createServer(async (req, res) => {
     const url = new URL(
         req.url ?? '/',
         `http://${req.headers.host ?? 'localhost'}`,
     );
+
+    if (url.pathname === '/api/generate_auth_token') {
+        if (req.method !== 'GET') {
+            sendJson(res, 405, { error: 'Method not allowed' });
+            return;
+        }
+
+        try {
+            await handleGenerateAuthToken(url, res);
+        } catch (error) {
+            sendJson(res, 500, {
+                error: error instanceof Error ? error.message : 'Internal server error',
+            });
+        }
+        return;
+    }
 
     if (req.method === 'GET' || req.method === 'HEAD') {
         if (
@@ -60,7 +170,7 @@ const server = createServer((req, res) => {
 
 const wss: _WebSocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false });
 
-wss.on('headers', (headers, req) => {
+wss.on('headers', (headers, _req) => {
     // You should NOT see any "Sec-WebSocket-Extensions" here
     console.log('WS response headers :', headers);
 });
