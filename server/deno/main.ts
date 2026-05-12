@@ -20,7 +20,7 @@ import { connectToGrok } from './models/grok.ts';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseKey = Deno.env.get('SUPABASE_KEY')!;
-const personalityImageBaseUrl = (Deno.env.get('PERSONALITY_IMAGE_BASE_URL') ?? 'https://elato.v2.ag')
+const personalityImageBaseUrl = (Deno.env.get('PERSONALITY_IMAGE_BASE_URL') ?? 'https://elatoai.aionetwo.deno.net')
     .replace(/\/+$/, '');
 
 function jsonResponse(
@@ -84,6 +84,34 @@ function getPersonalityImageUrl(personality: IPersonality | undefined): string |
     }
 
     return `${personalityImageBaseUrl}/personality/${encodeURIComponent(personality.key)}.jpeg`;
+}
+
+async function handlePersonalityImage(req: Request, pathname: string) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+        return jsonResponse(405, { error: 'Method not allowed' });
+    }
+
+    const filename = decodeURIComponent(pathname.slice('/personality/'.length));
+    if (!/^[a-zA-Z0-9_-]+\.jpeg$/.test(filename)) {
+        return jsonResponse(400, { error: 'Invalid image name' });
+    }
+
+    try {
+        const imagePath = new URL(`./personality/${filename}`, import.meta.url);
+        const data = req.method === 'HEAD' ? null : await Deno.readFile(imagePath);
+        if (req.method === 'HEAD') {
+            await Deno.stat(imagePath);
+        }
+        return new Response(data, {
+            status: 200,
+            headers: {
+                'content-type': 'image/jpeg',
+                'cache-control': 'public, max-age=86400',
+            },
+        });
+    } catch {
+        return jsonResponse(404, { error: 'Personality image not found' });
+    }
 }
 
 async function getUserByMacAddress(macAddress: string): Promise<IUser | null> {
@@ -364,6 +392,10 @@ async function handleRequest(req: Request) {
                 error: error instanceof Error ? error.message : 'Internal server error',
             });
         }
+    }
+
+    if (url.pathname.startsWith('/personality/')) {
+        return await handlePersonalityImage(req, url.pathname);
     }
 
     if (
