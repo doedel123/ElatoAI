@@ -1,12 +1,6 @@
 /// <reference path="./types.d.ts" />
 
-import { createServer } from 'node:http';
-import type { ServerResponse } from 'node:http';
-import { WebSocketServer } from 'npm:ws@8.18.0';
-import type {
-    WebSocket as WSWebSocket,
-    WebSocketServer as _WebSocketServer,
-} from 'npm:@types/ws@8.5.14';
+import { Buffer } from 'node:buffer';
 import * as jose from 'https://deno.land/x/jose@v5.9.6/index.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { authenticateUser } from './utils.ts';
@@ -27,27 +21,83 @@ import { connectToGrok } from './models/grok.ts';
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseKey = Deno.env.get('SUPABASE_KEY')!;
 
-function sendJson(
-    res: ServerResponse,
+function jsonResponse(
     status: number,
     payload: unknown,
 ) {
-    res.writeHead(status, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
+    return new Response(JSON.stringify(payload), {
+        status,
+        headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+        },
     });
-    res.end(JSON.stringify(payload));
+}
+
+function healthResponse(method: string) {
+    const body = JSON.stringify({
+        ok: true,
+        service: 'elato-deno-realtime',
+        websocket: true,
+        timestamp: new Date().toISOString(),
+    });
+    return new Response(method === 'HEAD' ? null : body, {
+        status: 200,
+        headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store',
+        },
+    });
+}
+
+function getMacAddressVariants(macAddress: string): string[] {
+    const trimmed = macAddress.trim();
+    const compact = trimmed.replace(/[^0-9a-fA-F]/g, '');
+    const variants = new Set<string>([
+        trimmed,
+        trimmed.toUpperCase(),
+        trimmed.toLowerCase(),
+    ]);
+
+    if (/^[0-9a-fA-F]{12}$/.test(compact)) {
+        const colonSeparated = compact.match(/.{1,2}/g)?.join(':');
+        if (colonSeparated) {
+            variants.add(colonSeparated.toUpperCase());
+            variants.add(colonSeparated.toLowerCase());
+        }
+        variants.add(compact.toUpperCase());
+        variants.add(compact.toLowerCase());
+    }
+
+    return [...variants].filter(Boolean);
+}
+
+function normalizeMacAddress(macAddress: string | null | undefined): string {
+    return macAddress?.replace(/[^0-9a-fA-F]/g, '').toLowerCase() ?? '';
 }
 
 async function getUserByMacAddress(macAddress: string): Promise<IUser | null> {
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    for (const variant of getMacAddressVariants(macAddress)) {
+        const { data, error } = await supabase.from('devices').select(
+            'mac_address, user:user_id(*)',
+        ).eq('mac_address', variant).maybeSingle();
+        if (error) {
+            throw new Error(error.message);
+        }
+        if (data) {
+            return data.user as unknown as IUser | null;
+        }
+    }
+
     const { data, error } = await supabase.from('devices').select(
-        '*, user:user_id(*)',
-    ).eq('mac_address', macAddress).single();
+        'mac_address, user:user_id(*)',
+    ).ilike('mac_address', macAddress.trim()).limit(1).maybeSingle();
     if (error) {
         throw new Error(error.message);
     }
-    return data?.user as IUser | null;
+    return data?.user as unknown as IUser | null;
 }
 
 async function getDevUser(): Promise<IUser | null> {
@@ -89,12 +139,10 @@ async function createSupabaseToken(user: IUser): Promise<string> {
 
 async function handleGenerateAuthToken(
     url: URL,
-    res: ServerResponse,
 ) {
     const macAddress = url.searchParams.get('macAddress');
     if (!macAddress) {
-        sendJson(res, 400, { error: 'MAC address is required' });
-        return;
+        return jsonResponse(400, { error: 'MAC address is required' });
     }
 
     const skipDeviceRegistration = Deno.env.get('SKIP_DEVICE_REGISTRATION') === 'True' ||
@@ -104,78 +152,68 @@ async function handleGenerateAuthToken(
         ? await getDevUser()
         : await getUserByMacAddress(macAddress);
     if (!user) {
-        sendJson(res, 400, { error: 'User not found' });
-        return;
+        return jsonResponse(404, {
+            error: 'Device not found or not linked to a user',
+            macAddress,
+        });
     }
 
     const token = await createSupabaseToken(user);
-    sendJson(res, 200, { token });
+    return jsonResponse(200, { token });
 }
 
-const server = createServer(async (req, res) => {
-    const url = new URL(
-        req.url ?? '/',
-        `http://${req.headers.host ?? 'localhost'}`,
-    );
+class ClientWebSocketAdapter {
+    private messageHandlers: Array<(data: Buffer, isBinary: boolean) => void> = [];
+    private errorHandlers: Array<(error: unknown) => void> = [];
+    private closeHandlers: Array<(code: number, reason: string) => void> = [];
 
-    if (url.pathname === '/api/generate_auth_token') {
-        if (req.method !== 'GET') {
-            sendJson(res, 405, { error: 'Method not allowed' });
-            return;
-        }
+    constructor(private readonly socket: WebSocket) {
+        this.socket.binaryType = 'arraybuffer';
+        this.socket.onmessage = (event) => {
+            const isBinary = typeof event.data !== 'string';
+            const data = typeof event.data === 'string'
+                ? Buffer.from(event.data)
+                : event.data instanceof ArrayBuffer
+                ? Buffer.from(event.data)
+                : Buffer.from(event.data);
 
-        try {
-            await handleGenerateAuthToken(url, res);
-        } catch (error) {
-            sendJson(res, 500, {
-                error: error instanceof Error ? error.message : 'Internal server error',
-            });
-        }
-        return;
-    }
-
-    if (req.method === 'GET' || req.method === 'HEAD') {
-        if (
-            url.pathname === '/' || url.pathname === '/health' ||
-            url.pathname === '/healthz'
-        ) {
-            const body = JSON.stringify({
-                ok: true,
-                service: 'elato-deno-realtime',
-                websocket: true,
-                timestamp: new Date().toISOString(),
-            });
-            res.writeHead(200, {
-                'content-type': 'application/json; charset=utf-8',
-                'cache-control': 'no-store',
-            });
-            if (req.method !== 'HEAD') {
-                res.end(body);
-            } else {
-                res.end();
+            for (const handler of this.messageHandlers) {
+                handler(data, isBinary);
             }
-            return;
-        }
+        };
+        this.socket.onerror = (event) => {
+            for (const handler of this.errorHandlers) {
+                handler(event);
+            }
+        };
+        this.socket.onclose = (event) => {
+            for (const handler of this.closeHandlers) {
+                handler(event.code, event.reason);
+            }
+        };
     }
 
-    res.writeHead(404, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-    });
-    res.end(JSON.stringify({
-        ok: false,
-        error: 'Not found. Use /health for HTTP checks or WebSocket upgrade for realtime.',
-    }));
-});
+    send(data: string | Uint8Array | ArrayBuffer) {
+        this.socket.send(data);
+    }
 
-const wss: _WebSocketServer = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+    close(code?: number, reason?: string) {
+        this.socket.close(code, reason);
+    }
 
-wss.on('headers', (headers, _req) => {
-    // You should NOT see any "Sec-WebSocket-Extensions" here
-    console.log('WS response headers :', headers);
-});
+    on(event: string, handler: (...args: any[]) => void | Promise<void>) {
+        if (event === 'message') {
+            this.messageHandlers.push(handler as (data: Buffer, isBinary: boolean) => void);
+        } else if (event === 'error') {
+            this.errorHandlers.push(handler as (error: unknown) => void);
+        } else if (event === 'close') {
+            this.closeHandlers.push(handler as (code: number, reason: string) => void);
+        }
+        return this;
+    }
+}
 
-wss.on('connection', async (ws: WSWebSocket, payload: IPayload) => {
+async function handleConnection(ws: ClientWebSocketAdapter, payload: IPayload) {
     const { user, supabase } = payload;
 
     let connectionPcmFile: Deno.FsFile | null = null;
@@ -245,63 +283,99 @@ wss.on('connection', async (ws: WSWebSocket, payload: IPayload) => {
         default:
             throw new Error(`Unknown provider: ${provider}`);
     }
-});
+}
 
-server.on('upgrade', async (req, socket, head) => {
-    console.log('foobar upgrade', req.headers);
+async function handleWebSocket(req: Request) {
     let user: IUser;
     let supabase: SupabaseClient;
-    let authToken: string;
     try {
-        const {
-            authorization: authHeader,
-            'x-wifi-rssi': rssi,
-            'x-device-mac': deviceMac,
-        } = req.headers;
-        authToken = authHeader?.replace('Bearer ', '') ?? '';
-        const wifiStrength = parseInt(rssi as string); // Convert to number
+        const authHeader = req.headers.get('authorization') ?? '';
+        const rssi = req.headers.get('x-wifi-rssi') ?? '0';
+        const deviceMac = req.headers.get('x-device-mac');
+        const authToken = authHeader.replace(/^Bearer\s+/i, '');
+        const wifiStrength = parseInt(rssi);
 
-        // You can now use wifiStrength in your code
-        console.log('WiFi RSSI:', wifiStrength); // Will log something like -50
+        console.log('WiFi RSSI:', wifiStrength);
 
-        // Remove debug logging
         if (!authToken) {
-            socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-            socket.destroy();
-            return;
+            return new Response('Unauthorized', { status: 401 });
         }
 
-        supabase = getSupabaseClient(authToken as string);
-        user = await authenticateUser(supabase, authToken as string);
+        supabase = getSupabaseClient(authToken);
+        user = await authenticateUser(supabase, authToken);
 
         // allow any mac address for dev
         const expectedMac = user.device?.mac_address;
-        if (!isDev && deviceMac && deviceMac !== expectedMac) {
-            socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-            socket.destroy();
-            return;
+        if (
+            !isDev && deviceMac && expectedMac &&
+            normalizeMacAddress(deviceMac) !== normalizeMacAddress(expectedMac)
+        ) {
+            return new Response('Unauthorized', { status: 401 });
         }
-    } catch (_e: any) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
-        return;
+    } catch (error: any) {
+        console.error('WS authentication failed:', error?.message ?? error);
+        return new Response('Unauthorized', { status: 401 });
     }
 
-    wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit('connection', ws, {
+    const { socket, response } = Deno.upgradeWebSocket(req);
+    const ws = new ClientWebSocketAdapter(socket);
+
+    socket.onopen = () => {
+        void handleConnection(ws, {
             user,
             supabase,
             timestamp: new Date().toISOString(),
+        }).catch((error: any) => {
+            console.error('Connection setup failed:', error?.message ?? error);
+            ws.close(1011, 'Connection setup failed');
         });
+    };
+
+    return response;
+}
+
+async function handleRequest(req: Request) {
+    const url = new URL(req.url);
+
+    if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+        return await handleWebSocket(req);
+    }
+
+    if (url.pathname === '/api/generate_auth_token') {
+        if (req.method !== 'GET') {
+            return jsonResponse(405, { error: 'Method not allowed' });
+        }
+
+        try {
+            return await handleGenerateAuthToken(url);
+        } catch (error) {
+            return jsonResponse(500, {
+                error: error instanceof Error ? error.message : 'Internal server error',
+            });
+        }
+    }
+
+    if (
+        (req.method === 'GET' || req.method === 'HEAD') &&
+        (url.pathname === '/' || url.pathname === '/health' ||
+            url.pathname === '/healthz')
+    ) {
+        return healthResponse(req.method);
+    }
+
+    return jsonResponse(404, {
+        ok: false,
+        error: 'Not found. Use /health for HTTP checks or WebSocket upgrade for realtime.',
     });
-});
+}
 
 if (isDev) { // RUN WITH: deno run -A --env-file=.env main.ts
     const HOST = Deno.env.get('HOST') || '0.0.0.0';
     const PORT = Deno.env.get('PORT') || '8000';
-    server.listen(Number(PORT), HOST, () => {
-        console.log(`Audio capture server running on ws://${HOST}:${PORT}`);
+    Deno.serve({ hostname: HOST, port: Number(PORT) }, (req) => {
+        return handleRequest(req);
     });
+    console.log(`Audio capture server running on ws://${HOST}:${PORT}`);
 } else {
-    server.listen(8080);
+    Deno.serve((req) => handleRequest(req));
 }

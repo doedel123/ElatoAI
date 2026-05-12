@@ -1,5 +1,4 @@
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { WebSocket as WSWebSocket } from 'npm:@types/ws';
 
 declare global {
     interface IConversation {
@@ -206,8 +205,14 @@ declare global {
         message: string;
     }
 
+    interface ClientWebSocket {
+        send(data: any): void;
+        close(code?: number, reason?: string): void;
+        on(event: string, handler: (...args: any[]) => void | Promise<void>): ClientWebSocket;
+    }
+
     interface ProviderArgs {
-        ws: WSWebSocket;
+        ws: ClientWebSocket;
         payload: IPayload;
         connectionPcmFile: Deno.FsFile | null;
         firstMessage: string;
