@@ -1,9 +1,10 @@
-import { SupabaseClient } from "@supabase/supabase-js";
+import { SupabaseClient } from '@supabase/supabase-js';
+import type { WebSocket as WSWebSocket } from 'npm:@types/ws';
 
 declare global {
     interface IConversation {
         conversation_id: string;
-        role: "user" | "assistant";
+        role: 'user' | 'assistant';
         content: string;
         user_id: string;
         is_sensitive: boolean;
@@ -26,59 +27,59 @@ declare global {
         user_code: string;
     }
 
-    type ModelProvider = "openai" | "gemini" | "elevenlabs" | "hume" | "grok";
+    type ModelProvider = 'openai' | 'gemini' | 'elevenlabs' | 'hume' | 'grok';
 
-    type GrokVoice = 
-        | "Ara"
-        | "Eve"
-        | "Leo"
-        | "Rex"
-        | "Sal"
+    type GrokVoice =
+        | 'Ara'
+        | 'Eve'
+        | 'Leo'
+        | 'Rex'
+        | 'Sal';
 
     type GeminiVoice =
-        | "Zephyr"
-        | "Puck"
-        | "Charon"
-        | "Kore"
-        | "Fenrir"
-        | "Leda"
-        | "Orus"
-        | "Aoede"
-        | "Callirrhoe"
-        | "Autonoe"
-        | "Enceladus"
-        | "Iapetus"
-        | "Umbriel"
-        | "Algieba"
-        | "Despina"
-        | "Erinome"
-        | "Algenib"
-        | "Rasalgethi"
-        | "Laomedeia"
-        | "Achernar"
-        | "Alnilam"
-        | "Schedar"
-        | "Gacrux"
-        | "Pulcherrima"
-        | "Achird"
-        | "Zubenelgenubi"
-        | "Vindemiatrix"
-        | "Sadachbia"
-        | "Sadaltager"
-        | "Sulafat";
+        | 'Zephyr'
+        | 'Puck'
+        | 'Charon'
+        | 'Kore'
+        | 'Fenrir'
+        | 'Leda'
+        | 'Orus'
+        | 'Aoede'
+        | 'Callirrhoe'
+        | 'Autonoe'
+        | 'Enceladus'
+        | 'Iapetus'
+        | 'Umbriel'
+        | 'Algieba'
+        | 'Despina'
+        | 'Erinome'
+        | 'Algenib'
+        | 'Rasalgethi'
+        | 'Laomedeia'
+        | 'Achernar'
+        | 'Alnilam'
+        | 'Schedar'
+        | 'Gacrux'
+        | 'Pulcherrima'
+        | 'Achird'
+        | 'Zubenelgenubi'
+        | 'Vindemiatrix'
+        | 'Sadachbia'
+        | 'Sadaltager'
+        | 'Sulafat';
 
     type OaiVoice =
-        | "ash"
-        | "alloy"
-        | "echo"
-        | "shimmer"
-        | "ballad"
-        | "coral"
-        | "sage"
-        | "verse";
+        | 'ash'
+        | 'alloy'
+        | 'echo'
+        | 'shimmer'
+        | 'ballad'
+        | 'coral'
+        | 'sage'
+        | 'verse';
 
     /**
-     * Note: oai_voice is essentially the name of the voice. 
+     * Note: oai_voice is essentially the name of the voice.
      * the naming here sucks, please change it
      */
     interface IPersonality {
@@ -87,6 +88,11 @@ declare global {
         is_child_voice: boolean;
         is_story: boolean;
         key: string;
+        voice?: {
+            config?: {
+                config_id?: string;
+            };
+        };
         oai_voice: string;
         provider: ModelProvider;
         voice_description: string;
@@ -119,15 +125,15 @@ declare global {
 
     type UserInfo =
         | {
-            user_type: "user";
+            user_type: 'user';
             user_metadata: IUserMetadata;
         }
         | {
-            user_type: "doctor";
+            user_type: 'doctor';
             user_metadata: IDoctorMetadata;
         }
         | {
-            user_type: "business";
+            user_type: 'business';
             user_metadata: IBusinessMetadata;
         };
 
@@ -201,7 +207,7 @@ declare global {
     }
 
     interface ProviderArgs {
-        ws: WebSocket;
+        ws: WSWebSocket;
         payload: IPayload;
         connectionPcmFile: Deno.FsFile | null;
         firstMessage: string;
