@@ -20,6 +20,8 @@ import { connectToGrok } from './models/grok.ts';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseKey = Deno.env.get('SUPABASE_KEY')!;
+const personalityImageBaseUrl = (Deno.env.get('PERSONALITY_IMAGE_BASE_URL') ?? 'https://elato.v2.ag')
+    .replace(/\/+$/, '');
 
 function jsonResponse(
     status: number,
@@ -74,6 +76,14 @@ function getMacAddressVariants(macAddress: string): string[] {
 
 function normalizeMacAddress(macAddress: string | null | undefined): string {
     return macAddress?.replace(/[^0-9a-fA-F]/g, '').toLowerCase() ?? '';
+}
+
+function getPersonalityImageUrl(personality: IPersonality | undefined): string | null {
+    if (!personality?.key || personality.creator_id) {
+        return null;
+    }
+
+    return `${personalityImageBaseUrl}/personality/${encodeURIComponent(personality.key)}.jpeg`;
 }
 
 async function getUserByMacAddress(macAddress: string): Promise<IUser | null> {
@@ -246,6 +256,7 @@ async function handleConnection(ws: ClientWebSocketAdapter, payload: IPayload) {
             is_ota: user.device?.is_ota ?? false,
             is_reset: user.device?.is_reset ?? false,
             pitch_factor: user.personality?.pitch_factor ?? 1,
+            personality_image_url: getPersonalityImageUrl(user.personality),
         }),
     );
 
