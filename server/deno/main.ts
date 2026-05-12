@@ -86,6 +86,26 @@ function getPersonalityImageUrl(personality: IPersonality | undefined): string |
     return `${personalityImageBaseUrl}/personality/${encodeURIComponent(personality.key)}.jpeg`;
 }
 
+async function getPersonalityImageBase64(personality: IPersonality | undefined): Promise<string | null> {
+    if (!personality?.key || personality.creator_id) {
+        return null;
+    }
+
+    const filename = `${personality.key}.jpeg`;
+    if (!/^[a-zA-Z0-9_-]+\.jpeg$/.test(filename)) {
+        return null;
+    }
+
+    try {
+        const imagePath = new URL(`./personality/${filename}`, import.meta.url);
+        const data = await Deno.readFile(imagePath);
+        return Buffer.from(data).toString('base64');
+    } catch (error) {
+        console.warn('Failed to inline personality image:', filename, error);
+        return null;
+    }
+}
+
 async function handlePersonalityImage(req: Request, pathname: string) {
     if (req.method !== 'GET' && req.method !== 'HEAD') {
         return jsonResponse(405, { error: 'Method not allowed' });
@@ -274,6 +294,7 @@ async function handleConnection(ws: ClientWebSocketAdapter, payload: IPayload) {
     const systemPrompt = createSystemPrompt(chatHistory, payload);
 
     const provider = user.personality?.provider;
+    const personalityImageBase64 = await getPersonalityImageBase64(user.personality);
 
     // send user details to client
     // when DEV_MODE is true, we send the default values 100, false, false
@@ -285,6 +306,7 @@ async function handleConnection(ws: ClientWebSocketAdapter, payload: IPayload) {
             is_reset: user.device?.is_reset ?? false,
             pitch_factor: user.personality?.pitch_factor ?? 1,
             personality_image_url: getPersonalityImageUrl(user.personality),
+            personality_image_jpeg_base64: personalityImageBase64,
         }),
     );
 
