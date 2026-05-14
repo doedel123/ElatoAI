@@ -42,7 +42,7 @@ export default async function RootLayout({
 }: {
     children: React.ReactNode;
 }) {
-    const supabase = createClient();
+    const supabase = await createClient();
 
     const {
         data: { user },

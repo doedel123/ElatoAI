@@ -13,7 +13,7 @@ import YoutubeDemo from "./components/LandingPage/YoutubeDemo";
 import { kickstarterLink } from "@/lib/data";
 
 export default async function LandingPage() {
-  const supabase = createClient();
+  const supabase = await createClient();
   const { stars = 0 } = await fetchGithubStars("akdeb/ElatoAI");
 
   const allPersonalities = await getAllPersonalities(supabase);

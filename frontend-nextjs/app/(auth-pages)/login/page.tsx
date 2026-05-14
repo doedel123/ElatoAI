@@ -40,7 +40,7 @@ export default async function Login(props: LoginProps) {
 
     const email = formData.get("email") as string;
     const password = formData.get("password") as string;
-    const supabase = createClient();
+    const supabase = await createClient();
 
     // Try to sign in first
     const { error: signInError } = await supabase.auth.signInWithPassword({

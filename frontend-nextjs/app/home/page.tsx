@@ -10,7 +10,7 @@ export const revalidate = 0; // disable cache for this route
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-    const supabase = createClient();
+    const supabase = await createClient();
 
     const {
         data: { user },
