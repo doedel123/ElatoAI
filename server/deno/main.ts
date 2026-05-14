@@ -22,6 +22,10 @@ const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseKey = Deno.env.get('SUPABASE_KEY')!;
 const personalityImageBaseUrl = (Deno.env.get('PERSONALITY_IMAGE_BASE_URL') ?? 'https://elatoai.aionetwo.deno.net')
     .replace(/\/+$/, '');
+const testAudiobookMp3Url = Deno.env.get('TEST_AUDIOBOOK_MP3_URL') ??
+    'https://imagebuck-s3-wv.s3.eu-west-1.amazonaws.com/der-rattenfaenger-von-hameln.mp3';
+const testAudiobookTitle = Deno.env.get('TEST_AUDIOBOOK_TITLE') ??
+    'Der Rattenfaenger von Hameln';
 
 function jsonResponse(
     status: number,
@@ -84,6 +88,20 @@ function getPersonalityImageUrl(personality: IPersonality | undefined): string |
     }
 
     return `${personalityImageBaseUrl}/personality/${encodeURIComponent(personality.key)}.jpeg`;
+}
+
+function getAudiobookContent() {
+    if (!testAudiobookMp3Url) {
+        return {
+            audiobook_mp3_url: null,
+            audiobook_title: null,
+        };
+    }
+
+    return {
+        audiobook_mp3_url: testAudiobookMp3Url,
+        audiobook_title: testAudiobookTitle,
+    };
 }
 
 async function getPersonalityImageBase64(personality: IPersonality | undefined): Promise<string | null> {
@@ -220,6 +238,28 @@ async function handleGenerateAuthToken(
     return jsonResponse(200, { token });
 }
 
+async function handleDeviceContent(url: URL) {
+    const macAddress = url.searchParams.get('macAddress');
+    if (!macAddress) {
+        return jsonResponse(400, { error: 'MAC address is required' });
+    }
+
+    const skipDeviceRegistration = Deno.env.get('SKIP_DEVICE_REGISTRATION') === 'True' ||
+        Deno.env.get('NEXT_PUBLIC_SKIP_DEVICE_REGISTRATION') === 'True';
+
+    const user = skipDeviceRegistration
+        ? await getDevUser()
+        : await getUserByMacAddress(macAddress);
+    if (!user) {
+        return jsonResponse(404, {
+            error: 'Device not found or not linked to a user',
+            macAddress,
+        });
+    }
+
+    return jsonResponse(200, getAudiobookContent());
+}
+
 class ClientWebSocketAdapter {
     private messageHandlers: Array<(data: Buffer, isBinary: boolean) => void> = [];
     private errorHandlers: Array<(error: unknown) => void> = [];
@@ -307,6 +347,7 @@ async function handleConnection(ws: ClientWebSocketAdapter, payload: IPayload) {
             pitch_factor: user.personality?.pitch_factor ?? 1,
             personality_image_url: getPersonalityImageUrl(user.personality),
             personality_image_jpeg_base64: personalityImageBase64,
+            ...getAudiobookContent(),
         }),
     );
 
@@ -409,6 +450,20 @@ async function handleRequest(req: Request) {
 
         try {
             return await handleGenerateAuthToken(url);
+        } catch (error) {
+            return jsonResponse(500, {
+                error: error instanceof Error ? error.message : 'Internal server error',
+            });
+        }
+    }
+
+    if (url.pathname === '/api/device_content') {
+        if (req.method !== 'GET') {
+            return jsonResponse(405, { error: 'Method not allowed' });
+        }
+
+        try {
+            return await handleDeviceContent(url);
         } catch (error) {
             return jsonResponse(500, {
                 error: error instanceof Error ? error.message : 'Internal server error',
