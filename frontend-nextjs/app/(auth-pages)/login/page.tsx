@@ -17,10 +17,11 @@ import GoogleLoginButton from "../../components/GoogleLoginButton";
 import Image from "next/image";
 
 interface LoginProps {
-  searchParams?: { [key: string]: string | string[] | undefined };
+  searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }
 
-export default async function Login({ searchParams }: LoginProps) {
+export default async function Login(props: LoginProps) {
+  const searchParams = await props.searchParams;
   const toy_id = searchParams?.toy_id as string | undefined;
   const personality_id = searchParams?.personality_id as string | undefined;
   const isGoogleOAuthEnabled = process.env.GOOGLE_OAUTH === "True";
@@ -53,7 +54,7 @@ export default async function Login({ searchParams }: LoginProps) {
     }
 
     // If sign in fails, try to sign up
-    const origin = headers().get("origin");
+    const origin = (await headers()).get("origin");
     const { error: signUpError } = await supabase.auth.signUp({
       email,
       password,
