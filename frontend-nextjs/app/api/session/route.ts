@@ -145,7 +145,7 @@ export async function GET(request: NextRequest) {
   }
 
   const openAiApiKey = process.env.OPENAI_API_KEY;
-  const realtimeModel = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-1.5";
+  const realtimeModel = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-2";
   const systemPrompt = await createSystemPrompt({
     user: dbUser,
     supabase,
