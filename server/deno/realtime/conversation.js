@@ -74,6 +74,9 @@ export class RealtimeConversation {
             }
             return { item: newItem, delta: null };
         },
+        'conversation.item.added': (event) => {
+            return this.EventProcessors['conversation.item.created'](event);
+        },
         'conversation.item.truncated': (event) => {
             const { item_id, audio_end_ms } = event;
             const item = this.itemLookup[item_id];
@@ -198,6 +201,9 @@ export class RealtimeConversation {
             item.formatted.transcript += delta;
             return { item, delta: { transcript: delta } };
         },
+        'response.output_audio_transcript.delta': (event) => {
+            return this.EventProcessors['response.audio_transcript.delta'](event);
+        },
         'response.audio.delta': (event) => {
             const { item_id, content_index, delta } = event;
             const item = this.itemLookup[item_id];
@@ -213,6 +219,9 @@ export class RealtimeConversation {
                 appendValues,
             );
             return { item, delta: { audio: appendValues } };
+        },
+        'response.output_audio.delta': (event) => {
+            return this.EventProcessors['response.audio.delta'](event);
         },
         'response.text.delta': (event) => {
             const { item_id, content_index, delta } = event;

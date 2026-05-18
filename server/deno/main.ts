@@ -333,7 +333,10 @@ async function handleConnection(ws: ClientWebSocketAdapter, payload: IPayload) {
     const firstMessage = createFirstMessage(payload);
     const systemPrompt = createSystemPrompt(chatHistory, payload);
 
-    const provider = user.personality?.provider;
+    const provider = user.personality?.provider ?? 'openai';
+    if (!user.personality?.provider) {
+        console.warn('Personality has no provider configured; falling back to openai');
+    }
     const personalityImageBase64 = await getPersonalityImageBase64(user.personality);
 
     // send user details to client

@@ -335,6 +335,13 @@ export class RealtimeClient extends RealtimeEventHandler {
                 this.dispatch('conversation.item.completed', { item });
             }
         });
+        this.realtime.on('server.conversation.item.added', (event) => {
+            const { item } = handlerWithDispatch(event);
+            this.dispatch('conversation.item.appended', { item });
+            if (item.status === 'completed') {
+                this.dispatch('conversation.item.completed', { item });
+            }
+        });
         this.realtime.on('server.conversation.item.truncated', handlerWithDispatch);
         this.realtime.on('server.conversation.item.deleted', handlerWithDispatch);
         this.realtime.on(
@@ -345,7 +352,12 @@ export class RealtimeClient extends RealtimeEventHandler {
             'server.response.audio_transcript.delta',
             handlerWithDispatch,
         );
+        this.realtime.on(
+            'server.response.output_audio_transcript.delta',
+            handlerWithDispatch,
+        );
         this.realtime.on('server.response.audio.delta', handlerWithDispatch);
+        this.realtime.on('server.response.output_audio.delta', handlerWithDispatch);
         this.realtime.on('server.response.text.delta', handlerWithDispatch);
         this.realtime.on(
             'server.response.function_call_arguments.delta',
@@ -546,8 +558,31 @@ export class RealtimeClient extends RealtimeEventHandler {
                 };
             }),
         );
-        const session = { ...this.sessionConfig };
-        session.tools = useTools;
+        const session = {
+            type: 'realtime',
+            instructions: this.sessionConfig.instructions,
+            output_modalities: ['audio'],
+            audio: {
+                input: {
+                    format: {
+                        type: 'audio/pcm',
+                        rate: 24000,
+                    },
+                    transcription: this.sessionConfig.input_audio_transcription,
+                    turn_detection: this.sessionConfig.turn_detection,
+                },
+                output: {
+                    format: {
+                        type: 'audio/pcm',
+                        rate: 24000,
+                    },
+                    voice: this.sessionConfig.voice,
+                },
+            },
+            tools: useTools,
+            tool_choice: this.sessionConfig.tool_choice,
+            max_output_tokens: this.sessionConfig.max_response_output_tokens,
+        };
         if (this.realtime.isConnected()) {
             this.realtime.send('session.update', { session });
         }

@@ -98,8 +98,8 @@ export const connectToOpenAI = async ({
                     }),
                 );
             }
-        } else if (event.type === "response.audio_transcript.done") {
-            console.log("response.audio_transcript.done", event);
+        } else if (event.type === "response.audio_transcript.done" || event.type === "response.output_audio_transcript.done") {
+            console.log(`${event.type}`, event);
             await addConversation(
                 supabase,
                 "assistant",
@@ -154,6 +154,7 @@ export const connectToOpenAI = async ({
                         }
                         break;
                     case "response.audio.delta":
+                    case "response.output_audio.delta":
                         {
                             const { delta } = client.conversation.processEvent(
                                 event,

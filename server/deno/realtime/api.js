@@ -76,7 +76,6 @@ export class RealtimeAPI extends RealtimeEventHandler {
             const ws = new WebSocket(`${this.url}${model ? `?model=${model}` : ''}`, [
                 'realtime',
                 `openai-insecure-api-key.${this.apiKey}`,
-                'openai-beta.realtime-v1',
             ]);
             ws.addEventListener('message', (event) => {
                 const message = JSON.parse(event.data);
@@ -113,13 +112,12 @@ export class RealtimeAPI extends RealtimeEventHandler {
             const wsModule = await import(/* webpackIgnore: true */ moduleName);
             const WebSocket = wsModule.default;
             const ws = new WebSocket(
-                'wss://api.openai.com/v1/realtime?model=gpt-realtime-1.5',
+                `${this.url}${model ? `?model=${model}` : ''}`,
                 [],
                 {
                     finishRequest: (request) => {
                         // Auth
                         request.setHeader('Authorization', `Bearer ${this.apiKey}`);
-                        request.setHeader('OpenAI-Beta', 'realtime=v1');
                         request.end();
                     },
                 },
