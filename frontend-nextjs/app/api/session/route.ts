@@ -145,15 +145,23 @@ export async function GET(request: NextRequest) {
   }
 
   const openAiApiKey = process.env.OPENAI_API_KEY;
+  const realtimeModel = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime-1.5";
   const systemPrompt = await createSystemPrompt({
     user: dbUser,
     supabase,
     timestamp: new Date().toISOString(),
   });
 
+  if (!openAiApiKey) {
+    return NextResponse.json(
+      { error: { message: "OPENAI_API_KEY is not configured" } },
+      { status: 500 },
+    );
+  }
+
   try {
     const response = await fetch(
-      "https://api.openai.com/v1/realtime/sessions",
+      "https://api.openai.com/v1/realtime/client_secrets",
       {
         method: "POST",
         headers: {
@@ -161,15 +169,32 @@ export async function GET(request: NextRequest) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-realtime-1.5",
-          instructions: systemPrompt,
-          voice: dbUser.personality?.oai_voice ?? "ballad",
+          session: {
+            type: "realtime",
+            model: realtimeModel,
+            instructions: systemPrompt,
+            audio: {
+              output: {
+                voice: dbUser.personality?.oai_voice ?? "ballad",
+              },
+            },
+          },
         }),
       },
     );
-    console.log(response);
     const data = await response.json();
-    return NextResponse.json(data);
+    if (!response.ok) {
+      console.error("OpenAI realtime client secret error:", data);
+      return NextResponse.json(data, { status: response.status });
+    }
+
+    return NextResponse.json({
+      ...data,
+      client_secret: {
+        value: data.value,
+        expires_at: data.expires_at,
+      },
+    });
   } catch (error) {
     console.error("Error in /session:", error);
     return NextResponse.json(

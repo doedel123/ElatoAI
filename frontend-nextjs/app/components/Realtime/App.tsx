@@ -116,16 +116,17 @@ function App({ personalityIdState, isDoctor, userId }: AppProps) {
     const data = await tokenResponse.json();
     logServerEvent(data, "fetch_session_token_response");
 
-    if (!data.client_secret?.value) {
+    const ephemeralKey = data.value ?? data.client_secret?.value;
+    if (!ephemeralKey) {
       logClientEvent(data, "error.no_ephemeral_key");
       setSessionStatus("DISCONNECTED");
       toast({
-        description: "Your API key is likely invalid. Please add it to your env variables.",
+        description: data.error?.message ?? "Could not create an OpenAI Realtime session.",
       });
       return null;
     }
 
-    return data.client_secret.value;
+    return ephemeralKey;
   };
 
   const connectToRealtime = async () => {
@@ -241,11 +242,24 @@ function App({ personalityIdState, isDoctor, userId }: AppProps) {
     const sessionUpdateEvent = {
       type: "session.update",
       session: {
-        modalities: ["text", "audio"],
-        input_audio_format: "pcm16",
-        output_audio_format: "pcm16",
-        input_audio_transcription: { model: "whisper-1" },
-        turn_detection: turnDetection,
+        type: "realtime",
+        output_modalities: ["audio"],
+        audio: {
+          input: {
+            format: {
+              type: "audio/pcm",
+              rate: 24000,
+            },
+            transcription: { model: "whisper-1" },
+            turn_detection: turnDetection,
+          },
+          output: {
+            format: {
+              type: "audio/pcm",
+              rate: 24000,
+            },
+          },
+        },
         tools,
       },
     };

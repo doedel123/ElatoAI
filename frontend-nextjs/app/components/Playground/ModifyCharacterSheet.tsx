@@ -3,13 +3,14 @@ import {
     Sheet,
     SheetClose,
     SheetContent,
+    SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet";
 import Image from "next/image";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { Airplay, Check, MonitorSmartphone, Phone } from "lucide-react";
 import { useState } from "react";
-import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
+import { Drawer, DrawerContent, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { getPersonalityImageSrc } from "@/lib/utils";
 import { EmojiComponent } from "./EmojiImage";
 import { Badge } from "@/components/ui/badge";
@@ -148,6 +149,9 @@ const ModifyCharacterSheet: React.FC<ModifyCharacterSheetProps> = ({
                     style={{ maxWidth: "500px" }}
                     side="right"
                 >
+                    <SheetTitle className="sr-only">
+                        {openPersonality.title}
+                    </SheetTitle>
                     <div className="min-h-[100dvh] flex flex-col">
                         <div className="flex-1">
                             <ContentComponent />
@@ -165,6 +169,9 @@ const ModifyCharacterSheet: React.FC<ModifyCharacterSheetProps> = ({
         <Drawer>
             <DrawerTrigger asChild>{children}</DrawerTrigger>
             <DrawerContent className="h-[70vh]">
+                <DrawerTitle className="sr-only">
+                    {openPersonality.title}
+                </DrawerTitle>
                 <div className="flex flex-col h-full overflow-y-auto">
                     <div className="flex-shrink-0">
                         <ButtonsComponent />
