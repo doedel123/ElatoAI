@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { getPersonalityImageSrc } from "@/lib/utils";
 
 interface MessageHeaderProps {
     personality: IPersonality;
@@ -11,7 +12,7 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
         <div className="flex items-center p-4 sm:border-none bg-white rounded-2xl max-w-screen-md mt-2">
             <div className="w-20 h-20 rounded-full overflow-hidden flex-shrink-0">
                 <Image
-                    src={`/personality/${personality.key}.jpeg`}
+                    src={getPersonalityImageSrc(personality.key)}
                     alt={personality.title}
                     width={80}
                     height={80}

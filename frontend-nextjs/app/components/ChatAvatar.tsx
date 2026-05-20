@@ -17,7 +17,7 @@ const ChatAvatar: React.FC<ChatAvatarProps> = ({
     const imageSrc: string =
         role === "input"
             ? getUserAvatar(user.avatar_url)
-            : `/personality/${user.personality?.key}.jpeg`;
+            : getPersonalityImageSrc(user.personality?.key || "");
 
     return (
         <Avatar className="h-10 w-10">

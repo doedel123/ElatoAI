@@ -32,7 +32,12 @@ export const getMacAddressFromDeviceCode = (deviceCode: string): string => {
 };
 
 export const getPersonalityImageSrc = (title: string) => {
-    return `/personality/${title.toLowerCase().replace(/\s+/g, "_")}.jpeg`;
+    if (!title) return "/personality/elato_default.jpeg";
+    const key = title.toLowerCase().replace(/\s+/g, "_");
+    if (["toad", "elsa"].includes(key)) {
+        return `/personality/${key}.jpg`;
+    }
+    return `/personality/${key}.jpeg`;
 };
 
 export function removeEmojis(text: string): string {
