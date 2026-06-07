@@ -1,3 +1,5 @@
+/// <reference path="./types.d.ts" />
+
 import * as jose from "https://deno.land/x/jose@v5.9.6/index.ts";
 import { getUserByEmail } from "./supabase.ts";
 import { SupabaseClient } from "@supabase/supabase-js";
@@ -123,8 +125,28 @@ export const authenticateUser = async (
         const secretBytes = new TextEncoder().encode(jwtSecret);
         const payload = await jose.jwtVerify(authToken, secretBytes);
 
-        const { payload: { email } } = payload;
+        const { payload: { email, user_metadata } } = payload;
         const user = await getUserByEmail(supabaseClient, email as string);
+
+        const nfcId = (user_metadata as Record<string, any> | undefined)?.nfc_id;
+        if (nfcId) {
+            const { data, error } = await supabaseClient
+                .from("nfc_tags")
+                .select("personality:personalities(*)")
+                .eq("nfc_id", nfcId)
+                .maybeSingle();
+
+            if (!error && data?.personality) {
+                const personality = (Array.isArray(data.personality)
+                    ? data.personality[0]
+                    : data.personality) as unknown as IPersonality;
+                user.personality = personality;
+                user.personality_id = personality.personality_id;
+            } else if (error) {
+                console.warn(`Failed to fetch personality for NFC ID ${nfcId}:`, error.message);
+            }
+        }
+
         return user;
     } catch (error: any) {
         throw new Error(error.message || "Failed to authenticate user");

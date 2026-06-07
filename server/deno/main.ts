@@ -188,7 +188,7 @@ async function getDevUser(): Promise<IUser | null> {
     return data as IUser | null;
 }
 
-async function createSupabaseToken(user: IUser): Promise<string> {
+async function createSupabaseToken(user: IUser, nfcId?: string | null): Promise<string> {
     const jwtSecretKey = Deno.env.get('JWT_SECRET_KEY');
     if (!jwtSecretKey) {
         throw new Error('JWT_SECRET_KEY not configured');
@@ -198,6 +198,7 @@ async function createSupabaseToken(user: IUser): Promise<string> {
         email: user.email,
         user_id: user.user_id,
         created_time: new Date().toISOString(),
+        nfc_id: nfcId || undefined,
     };
     const secret = new TextEncoder().encode(jwtSecretKey);
 
@@ -221,6 +222,9 @@ async function handleGenerateAuthToken(
         return jsonResponse(400, { error: 'MAC address is required' });
     }
 
+    const nfcId = url.searchParams.get('nfcId');
+    const normalizedNfcId = nfcId ? nfcId.replace(/[^0-9a-fA-F]/g, '').toUpperCase() : null;
+
     const skipDeviceRegistration = Deno.env.get('SKIP_DEVICE_REGISTRATION') === 'True' ||
         Deno.env.get('NEXT_PUBLIC_SKIP_DEVICE_REGISTRATION') === 'True';
 
@@ -234,7 +238,7 @@ async function handleGenerateAuthToken(
         });
     }
 
-    const token = await createSupabaseToken(user);
+    const token = await createSupabaseToken(user, normalizedNfcId);
     return jsonResponse(200, { token });
 }
 
