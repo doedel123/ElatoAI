@@ -31,6 +31,62 @@ export const getMacAddressFromDeviceCode = (deviceCode: string): string => {
         deviceCode.substring(8, 10) + ":" + deviceCode.substring(10, 12);
 };
 
+export const AVAILABLE_PERSONALITY_KEYS = [
+    "aggie_blood_test_pal",
+    "art_guru",
+    "art_guru3",
+    "batman",
+    "bear_maximillian",
+    "bear_oliver",
+    "bear_sam",
+    "blood_test_pal_1",
+    "captain_coral_reef",
+    "dramatic_theater_actor",
+    "eco_champ",
+    "elato_default",
+    "elsa",
+    "elsa_ice_explorer",
+    "female_lover",
+    "fitness_coach",
+    "gandalf",
+    "geo_guide",
+    "geo_guide2",
+    "hipster_barista_sarcastic",
+    "ironman",
+    "kids_astronomy",
+    "kids_books",
+    "kids_english_teacher",
+    "kids_football_teacher",
+    "kids_math_teacher",
+    "luna_epilepsy_pal",
+    "luna_stargazer",
+    "male_lover",
+    "marco_time_machine",
+    "master_chef",
+    "math_wiz",
+    "miles_multiverse_mission",
+    "pip_pixie_garden",
+    "porous_pete",
+    "professor_particle_lab",
+    "qura",
+    "rex_lost_world",
+    "santa_claus",
+    "sherlock",
+    "standup_comedian_funny_friend",
+    "surfer_bro_chill_vibe",
+    "surfer_gal_beach_vibes",
+    "toad",
+    "trixie_time_safari",
+    "vax_buddy",
+    "zara_zoo_detective"
+];
+
+export const hasPersonalityImage = (key: string): boolean => {
+    if (!key) return false;
+    const normalizedKey = key.toLowerCase().replace(/\s+/g, "_");
+    return AVAILABLE_PERSONALITY_KEYS.includes(normalizedKey);
+};
+
 export const getPersonalityImageSrc = (title: string) => {
     if (!title) return "/personality/elato_default.jpeg";
     const key = title.toLowerCase().replace(/\s+/g, "_");

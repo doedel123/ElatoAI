@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { TranscriptItem } from "@/app/components/Realtime/types";
 import Image from "next/image";
 import { useTranscript } from "@/app/components/Realtime/contexts/TranscriptContext";
-import { getPersonalityImageSrc } from "@/lib/utils";
+import { getPersonalityImageSrc, hasPersonalityImage } from "@/lib/utils";
 import { ArrowRight } from "lucide-react";
 import { dbInsertTranscriptItem } from "@/db/conversations";
 import { SupabaseClient } from "@supabase/supabase-js";
@@ -98,7 +98,7 @@ function Transcript({
       <div className="sticky top-0 p-4 border-b border-gray-200 flex items-center bg-white">
       <div className="w-12 h-12 rounded-full bg-gray-200 overflow-hidden mr-3">
           {personality.key && (
-            personality.creator_id === null ? (
+            hasPersonalityImage(personality.key) ? (
               <Image 
                 src={getPersonalityImageSrc(personality.key)} 
                 alt={personality.title} 

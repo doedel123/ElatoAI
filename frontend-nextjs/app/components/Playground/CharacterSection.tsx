@@ -1,6 +1,6 @@
 import ModifyCharacterSheet from "./ModifyCharacterSheet";
 import Image from "next/image";
-import { cn, getPersonalityImageSrc } from "@/lib/utils";
+import { cn, getPersonalityImageSrc, hasPersonalityImage } from "@/lib/utils";
 import {
     Card,
     CardContent,
@@ -70,7 +70,7 @@ const CharacterSection = ({
                             // onClick={() => onPersonalityPicked(personality)}
                         >
                             <CardContent className="flex-shrink-0 p-0 h-[160px] sm:h-[180px] relative">
-                                {personality.creator_id === null ? (
+                                {hasPersonalityImage(personality.key) ? (
                                     <Image
                                         src={getPersonalityImageSrc(personality.key)}
                                         alt={personality.key}

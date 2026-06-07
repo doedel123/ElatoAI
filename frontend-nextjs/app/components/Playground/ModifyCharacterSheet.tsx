@@ -11,7 +11,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { Airplay, Check, MonitorSmartphone, Phone } from "lucide-react";
 import { useState } from "react";
 import { Drawer, DrawerContent, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
-import { getPersonalityImageSrc } from "@/lib/utils";
+import { getPersonalityImageSrc, hasPersonalityImage } from "@/lib/utils";
 import { EmojiComponent } from "./EmojiImage";
 import { Badge } from "@/components/ui/badge";
 
@@ -95,7 +95,7 @@ const ModifyCharacterSheet: React.FC<ModifyCharacterSheetProps> = ({
         return (
             <div className="container mx-auto p-4 max-w-4xl">
                 <div className="flex flex-col items-center gap-6">
-                    {isPersonalCharacter ? (
+                    {!hasPersonalityImage(openPersonality.key) ? (
                         <div className="relative w-full h-[100px] sm:h-[200px] flex items-center justify-center">
                         <EmojiComponent personality={openPersonality} size={100} />
                         </div>
