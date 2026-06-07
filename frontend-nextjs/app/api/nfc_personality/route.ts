@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
+import { readFile } from "fs/promises";
+import { join } from "path";
 import { createClient } from "@/utils/supabase/server";
 import { hasPersonalityImage } from "@/lib/utils";
+
+export const runtime = "nodejs";
 
 /**
  * NFC -> Personality lookup for the ESP32 (Toniebox-style).
@@ -20,11 +24,33 @@ import { hasPersonalityImage } from "@/lib/utils";
 const normalizeNfcId = (raw: string): string =>
     raw.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
 
-// Build an absolute image URL from the personality key, matching the public asset
-// convention `/personality/{key}.jpeg`. Falls back to the default avatar.
-const getPersonalityImageUrl = (origin: string, key: string): string => {
-    const fileKey = hasPersonalityImage(key) ? key : "elato_default";
+const personalityImageBase64Cache = new Map<string, string>();
+
+const getPersonalityImageFileKey = (key: string): string => {
+    const normalizedKey = key.toLowerCase().replace(/\s+/g, "_");
+    return hasPersonalityImage(normalizedKey) ? normalizedKey : "elato_default";
+};
+
+const getPersonalityImageUrl = (origin: string, fileKey: string): string => {
     return `${origin}/personality/${fileKey}.jpeg`;
+};
+
+const getPersonalityImageJpegBase64 = async (fileKey: string): Promise<string> => {
+    const cachedImage = personalityImageBase64Cache.get(fileKey);
+    if (cachedImage) {
+        return cachedImage;
+    }
+
+    const imagePath = join(
+        process.cwd(),
+        "public",
+        "personality",
+        `${fileKey}.jpeg`,
+    );
+    const imageBase64 = await readFile(imagePath, "base64");
+    personalityImageBase64Cache.set(fileKey, imageBase64);
+
+    return imageBase64;
 };
 
 export async function GET(req: Request) {
@@ -64,12 +90,18 @@ export async function GET(req: Request) {
         const personality = Array.isArray(data.personality)
             ? data.personality[0]
             : data.personality;
+        const personalityImageFileKey = getPersonalityImageFileKey(
+            personality.key ?? "",
+        );
 
         return NextResponse.json({
             nfc_id: data.nfc_id,
             label: data.label,
             personality,
-            image_url: getPersonalityImageUrl(origin, personality.key),
+            image_url: getPersonalityImageUrl(origin, personalityImageFileKey),
+            personality_image_jpeg_base64: await getPersonalityImageJpegBase64(
+                personalityImageFileKey,
+            ),
         });
     } catch (error) {
         return NextResponse.json(
