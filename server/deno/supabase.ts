@@ -148,7 +148,7 @@ Your Voice Description: ${user.personality?.voice_prompt}
 
 Your Character Description: ${user.personality?.character_prompt}
 
-The default language is: ${user.language.name} but you must switch to any other language if the user asks for it.
+The default language is: ${user.language?.name ?? "German"} but you must switch to any other language if the user asks for it.
 
 The current time is: ${timestamp}
 
