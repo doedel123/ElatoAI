@@ -516,6 +516,77 @@ async function handleXiaozhiWebSocket(req: Request) {
     return response;
 }
 
+/**
+ * The wss:// URL the XIAOZHI device should connect to. Overridable via
+ * XIAOZHI_WS_URL; otherwise derived from the request host.
+ */
+function getXiaozhiWsUrl(req: Request): string {
+    const override = Deno.env.get('XIAOZHI_WS_URL');
+    if (override) return override;
+    const host = req.headers.get('host') ?? new URL(req.url).host;
+    return `wss://${host}/xiaozhi/v1/`;
+}
+
+/**
+ * XIAOZHI OTA / server-discovery endpoint (the device's CONFIG_OTA_URL).
+ *
+ * The device POSTs its system info with a `Device-Id` (MAC) header. We return
+ * the WebSocket config so it knows where to connect, plus server_time and a
+ * non-newer firmware section (so no spurious OTA update is triggered).
+ *
+ * Field contract per the firmware's Ota::CheckVersion parser:
+ *   websocket{url, token, version}, firmware{version, url}, server_time{...}.
+ *
+ * The MAC is only logged here; the WebSocket handler remains the real auth
+ * gate (getUserByMacAddress).
+ */
+async function handleXiaozhiOta(req: Request) {
+    const deviceMac = req.headers.get('device-id') ??
+        req.headers.get('x-device-mac') ?? '';
+
+    // Echo the device's current firmware version back so it never sees a newer
+    // one. Fall back to 0.0.0, which is never newer than any real build.
+    let firmwareVersion = '0.0.0';
+    if (req.method === 'POST') {
+        try {
+            const body = await req.json();
+            const reported = body?.application?.version;
+            if (typeof reported === 'string' && reported.length > 0) {
+                firmwareVersion = reported;
+            }
+        } catch {
+            // Non-JSON / empty body — keep the safe default.
+        }
+    }
+
+    if (deviceMac) {
+        try {
+            const user = await getUserByMacAddress(deviceMac);
+            console.log(
+                `XIAOZHI OTA: ${deviceMac} -> ${user ? 'known device' : 'UNREGISTERED (will be rejected at WS connect)'}`,
+            );
+        } catch (error: any) {
+            console.warn('XIAOZHI OTA device lookup failed:', error?.message ?? error);
+        }
+    }
+
+    return jsonResponse(200, {
+        server_time: {
+            timestamp: Date.now(),
+            timezone_offset: Number(Deno.env.get('XIAOZHI_TZ_OFFSET_MIN') ?? '0'),
+        },
+        firmware: {
+            version: firmwareVersion,
+            url: '',
+        },
+        websocket: {
+            url: getXiaozhiWsUrl(req),
+            token: Deno.env.get('XIAOZHI_WS_TOKEN') ?? 'elato',
+            version: 1,
+        },
+    });
+}
+
 async function handleRequest(req: Request) {
     const url = new URL(req.url);
 
@@ -524,6 +595,19 @@ async function handleRequest(req: Request) {
             return await handleXiaozhiWebSocket(req);
         }
         return await handleWebSocket(req);
+    }
+
+    if (url.pathname === '/xiaozhi/ota' || url.pathname === '/xiaozhi/ota/') {
+        if (req.method !== 'POST' && req.method !== 'GET') {
+            return jsonResponse(405, { error: 'Method not allowed' });
+        }
+        try {
+            return await handleXiaozhiOta(req);
+        } catch (error) {
+            return jsonResponse(500, {
+                error: error instanceof Error ? error.message : 'Internal server error',
+            });
+        }
     }
 
     if (url.pathname === '/api/generate_auth_token') {
