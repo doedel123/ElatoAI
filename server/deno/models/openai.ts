@@ -34,10 +34,11 @@ export const connectToOpenAI = async ({
     firstMessage,
     systemPrompt,
     closeHandler,
+    opusFactory,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
 
-    const opus = createOpusPacketizer((packet) => ws.send(packet));
+    const opus = (opusFactory ?? createOpusPacketizer)((packet) => ws.send(packet));
 
     let currentItemId: string | null = null;
     let currentCallId: string | null = null;

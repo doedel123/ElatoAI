@@ -5,7 +5,10 @@ import { getUserByEmail } from "./supabase.ts";
 import { SupabaseClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
 import { Buffer } from "node:buffer";
-import { Encoder } from "@evan/opus";
+import { Decoder, Encoder } from "@evan/opus";
+
+type OpusSampleRate = 8000 | 12000 | 16000 | 24000 | 48000;
+type OpusFrameDuration = 5 | 10 | 20 | 40 | 60 | 80 | 2.5 | 100 | 120;
 
 export const defaultVolume = 50;
 
@@ -21,22 +24,36 @@ const BYTES_PER_SAMPLE = 2; // 16-bit PCM: 2 bytes per sample
 const FRAME_SIZE = (SAMPLE_RATE * FRAME_DURATION / 1000) * CHANNELS *
     BYTES_PER_SAMPLE; // 960 bytes for 24000 Hz mono 16-bit
 
-export function createOpusEncoder() {
+export interface OpusAudioOptions {
+    sampleRate?: number;
+    frameDurationMs?: number;
+    bitrate?: number;
+}
+
+export function createOpusEncoder(opts: OpusAudioOptions = {}) {
+    const sampleRate = (opts.sampleRate ?? SAMPLE_RATE) as OpusSampleRate;
+    const frameDurationMs = (opts.frameDurationMs ?? FRAME_DURATION) as OpusFrameDuration;
     const enc = new Encoder({
         channels: CHANNELS,
-        sample_rate: SAMPLE_RATE,
+        sample_rate: sampleRate,
         application: "voip",
     });
 
-    enc.expert_frame_duration = FRAME_DURATION;
-    enc.bitrate = 24000;
+    enc.expert_frame_duration = frameDurationMs;
+    enc.bitrate = opts.bitrate ?? 24000;
     return enc;
 }
 
 export function createOpusPacketizer(
     sendPacket: (packet: Uint8Array) => void,
+    opts: OpusAudioOptions = {},
 ) {
-    const enc = createOpusEncoder();
+    const enc = createOpusEncoder(opts);
+    const sampleRate = opts.sampleRate ?? SAMPLE_RATE;
+    const frameDurationMs = opts.frameDurationMs ?? FRAME_DURATION;
+    // Bytes per Opus frame for this encoder's rate/duration (16-bit mono PCM).
+    const frameSize = (sampleRate * frameDurationMs / 1000) * CHANNELS *
+        BYTES_PER_SAMPLE;
     let pending = Buffer.alloc(0);
     let closed = false;
 
@@ -46,9 +63,9 @@ export function createOpusPacketizer(
 
         pending = Buffer.concat([pending, Buffer.from(pcm)]);
 
-        while (pending.length >= FRAME_SIZE) {
-            const frame = pending.subarray(0, FRAME_SIZE);
-            pending = pending.subarray(FRAME_SIZE);
+        while (pending.length >= frameSize) {
+            const frame = pending.subarray(0, frameSize);
+            pending = pending.subarray(frameSize);
             try {
                 const packet = enc.encode(frame);
                 sendPacket(packet);
@@ -67,7 +84,7 @@ export function createOpusPacketizer(
             return;
         }
 
-        const padded = Buffer.alloc(FRAME_SIZE);
+        const padded = Buffer.alloc(frameSize);
         pending.copy(padded, 0, 0, pending.length);
         pending = Buffer.alloc(0);
 
@@ -91,6 +108,47 @@ export function createOpusPacketizer(
     const bufferedBytes = () => pending.length;
 
     return { push, flush, reset, close, bufferedBytes };
+}
+
+export function createOpusDecoder(opts: { sampleRate?: number; channels?: 1 | 2 } = {}) {
+    return new Decoder({
+        channels: opts.channels ?? CHANNELS as 1 | 2,
+        sample_rate: (opts.sampleRate ?? 16000) as OpusSampleRate,
+    });
+}
+
+/**
+ * Linear-interpolating resampler for 16-bit mono PCM. Used to convert the
+ * XIAOZHI device's 16kHz uplink audio to the 24kHz our providers expect.
+ */
+export function resamplePcm16Mono(
+    inputBytes: Uint8Array,
+    fromRate: number,
+    toRate: number,
+): Buffer {
+    const input = Buffer.isBuffer(inputBytes)
+        ? inputBytes
+        : Buffer.from(inputBytes);
+    if (fromRate === toRate || input.length === 0) {
+        return input;
+    }
+    const inputSamples = input.length / 2;
+    const outputSamples = Math.max(
+        1,
+        Math.floor((inputSamples * toRate) / fromRate),
+    );
+    const output = Buffer.alloc(outputSamples * 2);
+    for (let i = 0; i < outputSamples; i++) {
+        const sourcePos = (i * fromRate) / toRate;
+        const leftIndex = Math.floor(sourcePos);
+        const rightIndex = Math.min(leftIndex + 1, inputSamples - 1);
+        const frac = sourcePos - leftIndex;
+        const left = input.readInt16LE(leftIndex * 2);
+        const right = input.readInt16LE(rightIndex * 2);
+        const sample = Math.round(left + (right - left) * frac);
+        output.writeInt16LE(sample, i * 2);
+    }
+    return output;
 }
 
 // Legacy encoder for backwards compatibility during migration

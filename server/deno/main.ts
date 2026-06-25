@@ -3,7 +3,8 @@
 import { Buffer } from 'node:buffer';
 import * as jose from 'https://deno.land/x/jose@v5.9.6/index.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { authenticateUser } from './utils.ts';
+import { authenticateUser, createOpusPacketizer } from './utils.ts';
+import { XiaozhiWebSocketAdapter } from './xiaozhi.ts';
 import {
     createFirstMessage,
     createSystemPrompt,
@@ -315,7 +316,11 @@ class ClientWebSocketAdapter {
     }
 }
 
-async function handleConnection(ws: ClientWebSocketAdapter, payload: IPayload) {
+async function handleConnection(
+    ws: ClientWebSocket,
+    payload: IPayload,
+    opts: { sendAuthMessage?: boolean; opusFactory?: OpusPacketizerFactory } = {},
+) {
     const { user, supabase } = payload;
 
     let connectionPcmFile: Deno.FsFile | null = null;
@@ -345,18 +350,21 @@ async function handleConnection(ws: ClientWebSocketAdapter, payload: IPayload) {
 
     // send user details to client
     // when DEV_MODE is true, we send the default values 100, false, false
-    ws.send(
-        JSON.stringify({
-            type: 'auth',
-            volume_control: user.device?.volume ?? 50,
-            is_ota: user.device?.is_ota ?? false,
-            is_reset: user.device?.is_reset ?? false,
-            pitch_factor: user.personality?.pitch_factor ?? 1,
-            personality_image_url: getPersonalityImageUrl(user.personality),
-            personality_image_jpeg_base64: personalityImageBase64,
-            ...getAudiobookContent(),
-        }),
-    );
+    // The XIAOZHI adapter has no use for this ELATO-specific message.
+    if (opts.sendAuthMessage !== false) {
+        ws.send(
+            JSON.stringify({
+                type: 'auth',
+                volume_control: user.device?.volume ?? 50,
+                is_ota: user.device?.is_ota ?? false,
+                is_reset: user.device?.is_reset ?? false,
+                pitch_factor: user.personality?.pitch_factor ?? 1,
+                personality_image_url: getPersonalityImageUrl(user.personality),
+                personality_image_jpeg_base64: personalityImageBase64,
+                ...getAudiobookContent(),
+            }),
+        );
+    }
 
     // Common close handler for cleanup
     const closeHandler = async () => {
@@ -371,6 +379,7 @@ async function handleConnection(ws: ClientWebSocketAdapter, payload: IPayload) {
         firstMessage,
         systemPrompt,
         closeHandler,
+        opusFactory: opts.opusFactory,
     };
 
     switch (provider) {
@@ -443,10 +452,77 @@ async function handleWebSocket(req: Request) {
     return response;
 }
 
+/**
+ * Entry point for XIAOZHI-ESP32 devices (Toniebox-protocol cousins).
+ *
+ * Auth is by the `Device-Id` header (the device MAC), mapped to a user via the
+ * `devices` table — the same path as `generate_auth_token`. The connection is
+ * wrapped in a XiaozhiWebSocketAdapter that translates the XIAOZHI protocol to
+ * the ELATO provider interface, then handed to the shared `handleConnection`.
+ */
+async function handleXiaozhiWebSocket(req: Request) {
+    let user: IUser | null;
+    let supabase: SupabaseClient;
+    try {
+        const deviceMac = req.headers.get('device-id') ??
+            req.headers.get('x-device-mac');
+        if (!deviceMac) {
+            return new Response('Device-Id header required', { status: 401 });
+        }
+
+        const skipDeviceRegistration =
+            Deno.env.get('SKIP_DEVICE_REGISTRATION') === 'True' ||
+            Deno.env.get('NEXT_PUBLIC_SKIP_DEVICE_REGISTRATION') === 'True';
+
+        supabase = createClient(supabaseUrl, supabaseKey);
+        user = skipDeviceRegistration
+            ? await getDevUser()
+            : await getUserByMacAddress(deviceMac);
+
+        if (!user) {
+            return new Response('Device not linked to a user', { status: 401 });
+        }
+    } catch (error: any) {
+        console.error('XIAOZHI authentication failed:', error?.message ?? error);
+        return new Response('Unauthorized', { status: 401 });
+    }
+
+    const { socket, response } = Deno.upgradeWebSocket(req);
+    const ws = new XiaozhiWebSocketAdapter(socket);
+    const authedUser = user;
+
+    socket.onopen = () => {
+        void handleConnection(ws, {
+            user: authedUser,
+            supabase,
+            timestamp: new Date().toISOString(),
+        }, {
+            sendAuthMessage: false,
+            // XIAOZHI decoder expects 60ms frames; downlink stays at 24kHz.
+            opusFactory: (sendPacket) =>
+                createOpusPacketizer(sendPacket, {
+                    sampleRate: 24000,
+                    frameDurationMs: 60,
+                }),
+        }).catch((error: any) => {
+            console.error(
+                'XIAOZHI connection setup failed:',
+                error?.message ?? error,
+            );
+            ws.close(1011, 'Connection setup failed');
+        });
+    };
+
+    return response;
+}
+
 async function handleRequest(req: Request) {
     const url = new URL(req.url);
 
     if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+        if (url.pathname.startsWith('/xiaozhi/')) {
+            return await handleXiaozhiWebSocket(req);
+        }
         return await handleWebSocket(req);
     }
 

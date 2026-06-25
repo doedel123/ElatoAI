@@ -211,6 +211,18 @@ declare global {
         on(event: string, handler: (...args: any[]) => void | Promise<void>): ClientWebSocket;
     }
 
+    interface OpusPacketizer {
+        push(pcm: Uint8Array): void;
+        flush(padFinalFrame?: boolean): void;
+        reset(): void;
+        close(): void;
+        bufferedBytes(): number;
+    }
+
+    type OpusPacketizerFactory = (
+        sendPacket: (packet: Uint8Array) => void,
+    ) => OpusPacketizer;
+
     interface ProviderArgs {
         ws: ClientWebSocket;
         payload: IPayload;
@@ -218,5 +230,8 @@ declare global {
         firstMessage: string;
         systemPrompt: string;
         closeHandler: () => Promise<void>;
+        // Optional override for the downlink Opus packetizer. Used by the
+        // XIAOZHI adapter to emit 60ms frames instead of the ELATO default 120ms.
+        opusFactory?: OpusPacketizerFactory;
     }
 }
