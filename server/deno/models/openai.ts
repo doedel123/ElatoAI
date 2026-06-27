@@ -3,7 +3,7 @@ import type { RawData } from "npm:@types/ws";
 import { RealtimeClient } from "../realtime/client.js";
 import { RealtimeUtils } from "../realtime/utils.js";
 import { addConversation, getDeviceInfo } from "../supabase.ts";
-import { createOpusPacketizer, isDev, openaiApiKey, defaultOpenAIVoice } from "../utils.ts";
+import { createOpusPacketizer, extractSentences, isDev, openaiApiKey, defaultOpenAIVoice } from "../utils.ts";
 
 const sendFirstMessage = (client: RealtimeClient, firstMessage: string) => {
     const event = {
@@ -35,6 +35,7 @@ export const connectToOpenAI = async ({
     systemPrompt,
     closeHandler,
     opusFactory,
+    emitTextEvents,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
 
@@ -42,6 +43,25 @@ export const connectToOpenAI = async ({
 
     let currentItemId: string | null = null;
     let currentCallId: string | null = null;
+
+    // Screen-text events for XIAOZHI devices (no-op for ELATO). The adapter
+    // turns these into stt / tts:sentence_start / llm messages.
+    let assistantTranscript = "";
+    const emitStt = (text: string) => {
+        if (emitTextEvents && text) {
+            ws.send(JSON.stringify({ type: "server", msg: "STT", text }));
+        }
+    };
+    const emitSentence = (text: string) => {
+        if (emitTextEvents && text.trim()) {
+            ws.send(JSON.stringify({ type: "server", msg: "TTS_SENTENCE", text: text.trim() }));
+        }
+    };
+    const emitEmotion = (emotion: string) => {
+        if (emitTextEvents) {
+            ws.send(JSON.stringify({ type: "server", msg: "EMOTION", emotion }));
+        }
+    };
 
     // Instantiate new client
     console.log(`Connecting with key "${openaiApiKey?.slice(0, 3)}..."`);
@@ -99,8 +119,19 @@ export const connectToOpenAI = async ({
                     }),
                 );
             }
+        } else if (event.type === "response.audio_transcript.delta" || event.type === "response.output_audio_transcript.delta") {
+            // Stream assistant subtitles to the device, one sentence at a time.
+            if (emitTextEvents && typeof event.delta === "string") {
+                assistantTranscript += event.delta;
+                const { sentences, rest } = extractSentences(assistantTranscript);
+                assistantTranscript = rest;
+                for (const sentence of sentences) emitSentence(sentence);
+            }
         } else if (event.type === "response.audio_transcript.done" || event.type === "response.output_audio_transcript.done") {
             console.log(`${event.type}`, event);
+            // Flush any trailing words that never hit a sentence boundary.
+            emitSentence(assistantTranscript);
+            assistantTranscript = "";
             await addConversation(
                 supabase,
                 "assistant",
@@ -117,6 +148,8 @@ export const connectToOpenAI = async ({
                     case "response.created":
                         console.log("response.created", event);
                         opus.reset();
+                        assistantTranscript = "";
+                        emitEmotion("neutral");
                         try {
                             const device = await getDeviceInfo(supabase, user.user_id);
 
@@ -181,6 +214,7 @@ export const connectToOpenAI = async ({
                         break;
                     case "conversation.item.input_audio_transcription.completed":
                         console.log("user transcription:", event);
+                        emitStt(event.transcript);
                         await addConversation(
                             supabase,
                             "user",

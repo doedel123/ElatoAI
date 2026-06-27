@@ -28,6 +28,14 @@ const testAudiobookMp3Url = Deno.env.get('TEST_AUDIOBOOK_MP3_URL') ??
 const testAudiobookTitle = Deno.env.get('TEST_AUDIOBOOK_TITLE') ??
     'Der Rattenfaenger von Hameln';
 
+// Uplink (mic) PCM rate each provider expects. The XIAOZHI adapter resamples
+// the device's 16kHz audio to this rate. Providers absent here are not yet
+// verified for XIAOZHI (only openai + gemini are wired with the 60ms downlink).
+const XIAOZHI_PROVIDER_UPLINK_RATE: Record<string, number> = {
+    openai: 24000,
+    gemini: 16000,
+};
+
 function jsonResponse(
     status: number,
     payload: unknown,
@@ -319,7 +327,11 @@ class ClientWebSocketAdapter {
 async function handleConnection(
     ws: ClientWebSocket,
     payload: IPayload,
-    opts: { sendAuthMessage?: boolean; opusFactory?: OpusPacketizerFactory } = {},
+    opts: {
+        sendAuthMessage?: boolean;
+        opusFactory?: OpusPacketizerFactory;
+        emitTextEvents?: boolean;
+    } = {},
 ) {
     const { user, supabase } = payload;
 
@@ -380,6 +392,7 @@ async function handleConnection(
         systemPrompt,
         closeHandler,
         opusFactory: opts.opusFactory,
+        emitTextEvents: opts.emitTextEvents,
     };
 
     switch (provider) {
@@ -487,9 +500,22 @@ async function handleXiaozhiWebSocket(req: Request) {
         return new Response('Unauthorized', { status: 401 });
     }
 
-    const { socket, response } = Deno.upgradeWebSocket(req);
-    const ws = new XiaozhiWebSocketAdapter(socket);
     const authedUser = user;
+
+    // Each provider expects the uplink (mic) PCM at a specific rate. We resample
+    // the device's 16kHz audio accordingly in the adapter.
+    const provider = authedUser.personality?.provider ?? 'openai';
+    const uplinkSampleRate = XIAOZHI_PROVIDER_UPLINK_RATE[provider];
+    if (uplinkSampleRate === undefined) {
+        console.warn(
+            `XIAOZHI: provider '${provider}' is not verified for XIAOZHI (downlink/uplink audio may be wrong). Use 'openai' or 'gemini'.`,
+        );
+    }
+
+    const { socket, response } = Deno.upgradeWebSocket(req);
+    const ws = new XiaozhiWebSocketAdapter(socket, {
+        uplinkSampleRate: uplinkSampleRate ?? 24000,
+    });
 
     socket.onopen = () => {
         void handleConnection(ws, {
@@ -498,7 +524,9 @@ async function handleXiaozhiWebSocket(req: Request) {
             timestamp: new Date().toISOString(),
         }, {
             sendAuthMessage: false,
-            // XIAOZHI decoder expects 60ms frames; downlink stays at 24kHz.
+            emitTextEvents: true,
+            // XIAOZHI decoder expects 60ms frames; downlink stays at 24kHz
+            // (both OpenAI and Gemini output 24kHz audio).
             opusFactory: (sendPacket) =>
                 createOpusPacketizer(sendPacket, {
                     sampleRate: 24000,

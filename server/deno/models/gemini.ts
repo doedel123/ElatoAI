@@ -8,7 +8,7 @@ import {
     Modality,
     Session,
 } from 'npm:@google/genai';
-import { createOpusPacketizer, defaultGeminiVoice, geminiApiKey, isDev } from '../utils.ts';
+import { createOpusPacketizer, defaultGeminiVoice, extractSentences, geminiApiKey, isDev } from '../utils.ts';
 import { addConversation } from '../supabase.ts';
 
 export const connectToGemini = async ({
@@ -18,11 +18,35 @@ export const connectToGemini = async ({
     firstMessage,
     systemPrompt,
     closeHandler,
+    opusFactory,
+    emitTextEvents,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
     const voiceName = user.personality?.oai_voice ?? defaultGeminiVoice;
 
-    const opus = createOpusPacketizer((packet) => ws.send(packet));
+    const opus = (opusFactory ?? createOpusPacketizer)((packet) => ws.send(packet));
+
+    // Screen-text events for XIAOZHI devices (no-op for ELATO).
+    const emitStt = (text: string) => {
+        if (emitTextEvents && text) {
+            ws.send(JSON.stringify({ type: 'server', msg: 'STT', text }));
+        }
+    };
+    const emitSentences = (text: string) => {
+        if (!emitTextEvents || !text.trim()) return;
+        const { sentences, rest } = extractSentences(text);
+        for (const sentence of sentences) {
+            ws.send(JSON.stringify({ type: 'server', msg: 'TTS_SENTENCE', text: sentence }));
+        }
+        if (rest.trim()) {
+            ws.send(JSON.stringify({ type: 'server', msg: 'TTS_SENTENCE', text: rest.trim() }));
+        }
+    };
+    const emitEmotion = (emotion: string) => {
+        if (emitTextEvents) {
+            ws.send(JSON.stringify({ type: 'server', msg: 'EMOTION', emotion }));
+        }
+    };
 
     console.log(`Connecting with Gemini key "${geminiApiKey?.slice(0, 3)}..."`);
 
@@ -82,6 +106,7 @@ export const connectToGemini = async ({
                         type: 'server',
                         msg: 'RESPONSE.CREATED',
                     }));
+                    emitEmotion('neutral');
                     done = true;
                 }
             }
@@ -141,6 +166,11 @@ export const connectToGemini = async ({
                         inputTranscriptionText += turn.serverContent.inputTranscription.text;
                     }
                 }
+
+                // Screen text for XIAOZHI: user transcript + assistant subtitles
+                // before the completion signal.
+                emitStt(inputTranscriptionText);
+                emitSentences(outputTranscriptionText);
 
                 // Send completion signal
                 ws.send(JSON.stringify({

@@ -233,5 +233,9 @@ declare global {
         // Optional override for the downlink Opus packetizer. Used by the
         // XIAOZHI adapter to emit 60ms frames instead of the ELATO default 120ms.
         opusFactory?: OpusPacketizerFactory;
+        // When true, providers emit extra { type: "server", msg: "STT" |
+        // "TTS_SENTENCE" | "EMOTION" } control messages so the XIAOZHI adapter
+        // can drive the device screen. Left false (default) for ELATO devices.
+        emitTextEvents?: boolean;
     }
 }

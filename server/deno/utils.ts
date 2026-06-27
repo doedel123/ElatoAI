@@ -151,6 +151,26 @@ export function resamplePcm16Mono(
     return output;
 }
 
+/**
+ * Splits a growing transcript buffer into complete sentences for the XIAOZHI
+ * `tts:sentence_start` display. Returns the finished sentences plus the trailing
+ * incomplete remainder, which the caller keeps and re-feeds on the next delta.
+ */
+export function extractSentences(
+    buffer: string,
+): { sentences: string[]; rest: string } {
+    const sentences: string[] = [];
+    const regex = /[^.!?…\n]*[.!?…\n]+/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(buffer)) !== null) {
+        const sentence = match[0].trim();
+        if (sentence) sentences.push(sentence);
+        lastIndex = regex.lastIndex;
+    }
+    return { sentences, rest: buffer.slice(lastIndex) };
+}
+
 // Legacy encoder for backwards compatibility during migration
 const encoder = new Encoder({
     channels: CHANNELS,
