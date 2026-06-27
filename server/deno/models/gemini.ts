@@ -7,8 +7,10 @@ import {
     LiveServerMessage,
     Modality,
     Session,
+    Type,
 } from 'npm:@google/genai';
 import { createOpusPacketizer, defaultGeminiVoice, extractSentences, geminiApiKey, isDev } from '../utils.ts';
+import { XIAOZHI_DEVICE_TOOL_BY_NAME, XIAOZHI_DEVICE_TOOLS } from '../device_tools.ts';
 import { addConversation } from '../supabase.ts';
 
 export const connectToGemini = async ({
@@ -20,6 +22,8 @@ export const connectToGemini = async ({
     closeHandler,
     opusFactory,
     emitTextEvents,
+    requestPhoto,
+    callDeviceTool,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
     const voiceName = user.personality?.oai_voice ?? defaultGeminiVoice;
@@ -53,6 +57,40 @@ export const connectToGemini = async ({
     // Initialize Google GenAI
     const ai = new GoogleGenAI({ apiKey: geminiApiKey });
     const model = 'gemini-2.5-flash-native-audio-preview-09-2025';
+
+    // Build the tool list: camera (take_photo) + curated device-control tools.
+    const functionDeclarations: any[] = [];
+    if (requestPhoto) {
+        functionDeclarations.push({
+            name: 'take_photo',
+            description:
+                "Take a photo with the device's camera and get a description of what is currently visible. Use whenever the user asks what you can see, to look at something, or to read/identify something in front of the device.",
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    question: { type: Type.STRING, description: 'What to look for or answer about the scene.' },
+                },
+                required: ['question'],
+            },
+        });
+    }
+    if (callDeviceTool) {
+        for (const spec of XIAOZHI_DEVICE_TOOLS) {
+            const properties: Record<string, any> = {};
+            for (const p of spec.params) {
+                properties[p.name] = {
+                    type: p.type === 'integer' ? Type.INTEGER : Type.STRING,
+                    description: p.description,
+                };
+            }
+            functionDeclarations.push({
+                name: spec.name,
+                description: spec.description,
+                parameters: { type: Type.OBJECT, properties, required: spec.params.map((p) => p.name) },
+            });
+        }
+    }
+
     const config: LiveConnectConfig = {
         responseModalities: [Modality.AUDIO],
         systemInstruction: systemPrompt,
@@ -72,7 +110,33 @@ export const connectToGemini = async ({
         },
         outputAudioTranscription: {},
         inputAudioTranscription: {},
+        ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
     };
+
+    async function handleFunctionCall(fc: { id?: string; name?: string; args?: any }) {
+        let response: Record<string, unknown>;
+        const deviceTool = XIAOZHI_DEVICE_TOOL_BY_NAME[fc.name ?? ''];
+        if (fc.name === 'take_photo' && requestPhoto) {
+            try {
+                const description = await requestPhoto(fc.args?.question ?? 'What do you see?');
+                response = { success: true, description };
+            } catch (e: unknown) {
+                response = { success: false, error: (e as Error).message };
+            }
+        } else if (deviceTool && callDeviceTool) {
+            try {
+                const result = await callDeviceTool(deviceTool.mcpName, fc.args ?? {});
+                response = { success: true, result };
+            } catch (e: unknown) {
+                response = { success: false, error: (e as Error).message };
+            }
+        } else {
+            response = { success: false, error: `unknown tool ${fc.name}` };
+        }
+        geminiSession?.sendToolResponse({
+            functionResponses: [{ id: fc.id, name: fc.name, response }],
+        });
+    }
 
     // Response queue for handling Google's callback-based responses
     const responseQueue: LiveServerMessage[] = [];
@@ -98,6 +162,12 @@ export const connectToGemini = async ({
         while (!done) {
             const message = await waitMessage();
             turns.push(message);
+
+            if (message.toolCall?.functionCalls?.length) {
+                for (const fc of message.toolCall.functionCalls) {
+                    await handleFunctionCall(fc);
+                }
+            }
 
             if (message.serverContent) {
                 if (message.serverContent.generationComplete) {

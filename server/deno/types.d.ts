@@ -237,5 +237,13 @@ declare global {
         // "TTS_SENTENCE" | "EMOTION" } control messages so the XIAOZHI adapter
         // can drive the device screen. Left false (default) for ELATO devices.
         emitTextEvents?: boolean;
+        // When present (XIAOZHI with a camera), providers register a take_photo
+        // tool. It asks the device for a photo via MCP and returns a textual
+        // description from a vision model — decoupled from the audio session.
+        requestPhoto?: (question: string) => Promise<string>;
+        // When present (XIAOZHI with MCP), providers register the curated
+        // device-control tools (volume, brightness, theme, status) that route
+        // to the device via MCP tools/call.
+        callDeviceTool?: (name: string, args: Record<string, unknown>) => Promise<string>;
     }
 }

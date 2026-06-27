@@ -181,12 +181,27 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
     private helloAnswered = false;
     private readonly pacer: FramePacer;
     private readonly uplinkSampleRate: number;
+    private readonly visionUrl?: string;
+    private readonly visionToken?: string;
+    // MCP (camera) state.
+    private mcpEnabled = false;
+    private mcpId = 0;
+    private readonly pendingMcp = new Map<
+        number,
+        { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: number }
+    >();
 
     constructor(
         private readonly socket: WebSocket,
-        opts: { uplinkSampleRate?: number } = {},
+        opts: {
+            uplinkSampleRate?: number;
+            visionUrl?: string;
+            visionToken?: string;
+        } = {},
     ) {
         this.uplinkSampleRate = opts.uplinkSampleRate ?? DEFAULT_UPLINK_SAMPLE_RATE;
+        this.visionUrl = opts.visionUrl;
+        this.visionToken = opts.visionToken;
         this.socket.binaryType = "arraybuffer";
 
         this.pacer = new FramePacer(
@@ -217,6 +232,7 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
 
         this.socket.onclose = (event) => {
             this.pacer.dispose();
+            this.rejectPendingMcp("connection closed");
             for (const handler of this.closeHandlers) {
                 handler(event.code, event.reason);
             }
@@ -257,7 +273,10 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
 
         switch (message.type) {
             case "hello":
-                this.answerHello();
+                this.answerHello(message);
+                break;
+            case "mcp":
+                this.handleMcp(message.payload as Record<string, unknown> | undefined);
                 break;
             case "abort": {
                 // User interrupted: flush queued audio, stop the device, and
@@ -283,13 +302,21 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
         }
     }
 
-    private answerHello() {
+    private answerHello(message: Record<string, unknown>) {
         if (this.helloAnswered) return;
         this.helloAnswered = true;
+
+        // Enable MCP only if the device advertised it (needed for the camera).
+        this.mcpEnabled = (message.features as { mcp?: boolean } | undefined)?.mcp === true;
+        console.log(
+            `XIAOZHI hello: features=${JSON.stringify(message.features ?? null)} -> mcpEnabled=${this.mcpEnabled}`,
+        );
+
         this.rawSend(JSON.stringify({
             type: "hello",
             transport: "websocket",
             session_id: this.sessionId,
+            ...(this.mcpEnabled ? { features: { mcp: true } } : {}),
             audio_params: {
                 format: "opus",
                 sample_rate: SERVER_DOWNLINK_SAMPLE_RATE,
@@ -297,6 +324,114 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
                 frame_duration: SERVER_FRAME_DURATION_MS,
             },
         }));
+
+        // Hand the device our vision endpoint so its camera can upload photos.
+        if (this.mcpEnabled) this.initMcp();
+    }
+
+    // ---- MCP (camera) ------------------------------------------------------
+
+    private sendMcp(payload: Record<string, unknown>) {
+        this.rawSend(JSON.stringify({
+            type: "mcp",
+            session_id: this.sessionId,
+            payload,
+        }));
+    }
+
+    private mcpRequest(
+        method: string,
+        params: Record<string, unknown>,
+        timeoutMs = 20000,
+    ): Promise<unknown> {
+        const id = ++this.mcpId;
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.pendingMcp.delete(id);
+                reject(new Error(`MCP ${method} timed out`));
+            }, timeoutMs);
+            this.pendingMcp.set(id, { resolve, reject, timer });
+            this.sendMcp({ jsonrpc: "2.0", id, method, params });
+        });
+    }
+
+    private initMcp() {
+        // MCP `initialize` configures the device's camera upload (vision) URL.
+        this.mcpRequest("initialize", {
+            protocolVersion: "2024-11-05",
+            capabilities: this.visionUrl
+                ? { vision: { url: this.visionUrl, token: this.visionToken ?? "" } }
+                : {},
+            clientInfo: { name: "elato-xiaozhi", version: "1.0.0" },
+        })
+            .then(() => {
+                console.log("XIAOZHI MCP initialized (vision URL sent to device)");
+                this.sendMcp({ jsonrpc: "2.0", method: "notifications/initialized" });
+            })
+            .catch((e) => console.warn("XIAOZHI MCP initialize failed:", (e as Error).message));
+    }
+
+    private rejectPendingMcp(reason: string) {
+        for (const [, pending] of this.pendingMcp) {
+            clearTimeout(pending.timer);
+            pending.reject(new Error(reason));
+        }
+        this.pendingMcp.clear();
+    }
+
+    private handleMcp(payload: Record<string, unknown> | undefined) {
+        if (!payload) return;
+        const id = payload.id as number | undefined;
+        // We only send requests, so inbound MCP traffic is responses to us.
+        if (id == null || !this.pendingMcp.has(id)) return;
+        const pending = this.pendingMcp.get(id)!;
+        this.pendingMcp.delete(id);
+        clearTimeout(pending.timer);
+        if (payload.error) {
+            pending.reject(new Error((payload.error as { message?: string })?.message ?? "MCP error"));
+        } else {
+            pending.resolve(payload.result);
+        }
+    }
+
+    private extractMcpText(result: unknown): string {
+        if (typeof result === "string") return result;
+        const r = result as { content?: Array<{ text?: string }>; isError?: boolean };
+        const text = Array.isArray(r?.content)
+            ? r.content.map((c) => c?.text ?? "").join("")
+            : JSON.stringify(result);
+        if (r?.isError) throw new Error(text || "device tool error");
+        return text;
+    }
+
+    /**
+     * Generic device-control bridge: invoke an MCP tool on the device (volume,
+     * brightness, theme, status, …) and return its textual result. Exposed to
+     * the realtime model via the curated XIAOZHI_DEVICE_TOOLS.
+     */
+    async callDeviceTool(name: string, args: Record<string, unknown>): Promise<string> {
+        console.log(`XIAOZHI callDeviceTool ${name} args=${JSON.stringify(args)} (mcpEnabled=${this.mcpEnabled})`);
+        if (!this.mcpEnabled) throw new Error("device has no MCP tools (MCP not enabled)");
+        const text = this.extractMcpText(
+            await this.mcpRequest("tools/call", { name, arguments: args }),
+        );
+        console.log(`XIAOZHI ${name} -> ${text.slice(0, 160)}`);
+        return text;
+    }
+
+    /**
+     * Ask the device to take a photo and return a textual description (produced
+     * by the vision endpoint, independent of the audio model). Used as the
+     * take_photo tool by the realtime providers.
+     */
+    async requestPhoto(question: string): Promise<string> {
+        const text = await this.callDeviceTool("self.camera.take_photo", { question });
+        // The device returns our vision endpoint's JSON body: { success, result }.
+        try {
+            const parsed = JSON.parse(text);
+            if (parsed && typeof parsed.result === "string") return parsed.result;
+        } catch { /* not JSON — return as-is */ }
+        return text;
     }
 
     private dispatch(data: Buffer, isBinary: boolean) {

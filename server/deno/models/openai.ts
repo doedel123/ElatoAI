@@ -4,6 +4,7 @@ import { RealtimeClient } from "../realtime/client.js";
 import { RealtimeUtils } from "../realtime/utils.js";
 import { addConversation, getDeviceInfo } from "../supabase.ts";
 import { createOpusPacketizer, extractSentences, isDev, openaiApiKey, defaultOpenAIVoice } from "../utils.ts";
+import { XIAOZHI_DEVICE_TOOLS } from "../device_tools.ts";
 
 const sendFirstMessage = (client: RealtimeClient, firstMessage: string) => {
     const event = {
@@ -36,6 +37,8 @@ export const connectToOpenAI = async ({
     closeHandler,
     opusFactory,
     emitTextEvents,
+    requestPhoto,
+    callDeviceTool,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
 
@@ -96,6 +99,78 @@ export const connectToOpenAI = async ({
             return { success: true, message: `Session ended: ${args.reason}` };
         },
     );
+
+    console.log(
+        `OpenAI tools: take_photo=${!!requestPhoto} device_tools=${!!callDeviceTool}`,
+    );
+
+    // Camera (XIAOZHI devices only): the model can take a photo and get a
+    // description from a vision model — independent of this audio session.
+    if (requestPhoto) {
+        client.addTool(
+            {
+                type: "function",
+                name: "take_photo",
+                description:
+                    "Take a photo with the device's camera and get a description of what is currently visible. Use this whenever the user asks what you can see, to look at something, or to identify/read something in front of the device.",
+                parameters: {
+                    type: "object",
+                    strict: true,
+                    properties: {
+                        question: {
+                            type: "string",
+                            description: "What to look for or answer about the scene.",
+                        },
+                    },
+                    required: ["question"],
+                },
+            },
+            async (args: any) => {
+                try {
+                    const description = await requestPhoto(args.question ?? "What do you see?");
+                    return { success: true, description };
+                } catch (e: unknown) {
+                    return { success: false, error: (e as Error).message };
+                }
+            },
+        );
+    }
+
+    // Device-control tools (XIAOZHI only): volume, brightness, theme, status.
+    if (callDeviceTool) {
+        for (const spec of XIAOZHI_DEVICE_TOOLS) {
+            const properties: Record<string, any> = {};
+            for (const p of spec.params) {
+                properties[p.name] = {
+                    type: p.type,
+                    description: p.description,
+                    ...(p.minimum != null ? { minimum: p.minimum } : {}),
+                    ...(p.maximum != null ? { maximum: p.maximum } : {}),
+                };
+            }
+            client.addTool(
+                {
+                    type: "function",
+                    name: spec.name,
+                    description: spec.description,
+                    parameters: {
+                        type: "object",
+                        strict: true,
+                        properties,
+                        required: spec.params.map((p) => p.name),
+                    },
+                },
+                async (args: any) => {
+                    try {
+                        const result = await callDeviceTool(spec.mcpName, args ?? {});
+                        return { success: true, result };
+                    } catch (e: unknown) {
+                        return { success: false, error: (e as Error).message };
+                    }
+                },
+            );
+        }
+    }
 
     // Relay: OpenAI Realtime API Event -> Browser Event
     client.realtime.on("server.*", async (event: any) => {

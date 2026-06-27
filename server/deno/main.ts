@@ -5,6 +5,7 @@ import * as jose from 'https://deno.land/x/jose@v5.9.6/index.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { authenticateUser, createOpusPacketizer } from './utils.ts';
 import { XiaozhiWebSocketAdapter } from './xiaozhi.ts';
+import { describeImage } from './vision.ts';
 import {
     createFirstMessage,
     createSystemPrompt,
@@ -35,6 +36,10 @@ const XIAOZHI_PROVIDER_UPLINK_RATE: Record<string, number> = {
     openai: 24000,
     gemini: 16000,
 };
+
+// Shared secret handed to the device in the MCP `initialize` (capabilities.vision.token)
+// and verified on the vision endpoint. Keeps random callers from hitting the VLM.
+const XIAOZHI_VISION_TOKEN = Deno.env.get('XIAOZHI_VISION_TOKEN') ?? 'elato-vision';
 
 function jsonResponse(
     status: number,
@@ -331,6 +336,8 @@ async function handleConnection(
         sendAuthMessage?: boolean;
         opusFactory?: OpusPacketizerFactory;
         emitTextEvents?: boolean;
+        requestPhoto?: (question: string) => Promise<string>;
+        callDeviceTool?: (name: string, args: Record<string, unknown>) => Promise<string>;
     } = {},
 ) {
     const { user, supabase } = payload;
@@ -393,6 +400,8 @@ async function handleConnection(
         closeHandler,
         opusFactory: opts.opusFactory,
         emitTextEvents: opts.emitTextEvents,
+        requestPhoto: opts.requestPhoto,
+        callDeviceTool: opts.callDeviceTool,
     };
 
     switch (provider) {
@@ -477,8 +486,12 @@ async function handleXiaozhiWebSocket(req: Request) {
     let user: IUser | null;
     let supabase: SupabaseClient;
     try {
+        // Real devices send the MAC as a header; the `?device_id=` query param
+        // is a fallback for clients that can't set headers (e.g. the simulator,
+        // since Deno's WebSocket client has no header support).
         const deviceMac = req.headers.get('device-id') ??
-            req.headers.get('x-device-mac');
+            req.headers.get('x-device-mac') ??
+            new URL(req.url).searchParams.get('device_id');
         if (!deviceMac) {
             return new Response('Device-Id header required', { status: 401 });
         }
@@ -512,9 +525,16 @@ async function handleXiaozhiWebSocket(req: Request) {
         );
     }
 
+    const visionUrl = getXiaozhiVisionUrl(req);
+    console.log(
+        `XIAOZHI WS connect: mac=${authedUser.device?.mac_address ?? '?'} provider=${provider} visionUrl=${visionUrl}`,
+    );
+
     const { socket, response } = Deno.upgradeWebSocket(req);
     const ws = new XiaozhiWebSocketAdapter(socket, {
         uplinkSampleRate: uplinkSampleRate ?? 24000,
+        visionUrl,
+        visionToken: XIAOZHI_VISION_TOKEN,
     });
 
     socket.onopen = () => {
@@ -525,6 +545,8 @@ async function handleXiaozhiWebSocket(req: Request) {
         }, {
             sendAuthMessage: false,
             emitTextEvents: true,
+            requestPhoto: (question) => ws.requestPhoto(question),
+            callDeviceTool: (name, callArgs) => ws.callDeviceTool(name, callArgs),
             // XIAOZHI decoder expects 60ms frames; downlink stays at 24kHz
             // (both OpenAI and Gemini output 24kHz audio).
             opusFactory: (sendPacket) =>
@@ -551,8 +573,12 @@ async function handleXiaozhiWebSocket(req: Request) {
 function getXiaozhiWsUrl(req: Request): string {
     const override = Deno.env.get('XIAOZHI_WS_URL');
     if (override) return override;
-    const host = req.headers.get('host') ?? new URL(req.url).host;
-    return `wss://${host}/xiaozhi/v1/`;
+    const url = new URL(req.url);
+    const host = req.headers.get('host') ?? url.host;
+    // wss:// in production (https), ws:// for local http dev.
+    const proto = req.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '');
+    const scheme = proto === 'https' ? 'wss' : 'ws';
+    return `${scheme}://${host}/xiaozhi/v1/`;
 }
 
 /**
@@ -615,6 +641,62 @@ async function handleXiaozhiOta(req: Request) {
     });
 }
 
+/** HTTP(S) URL of our vision-explain endpoint (handed to the device via MCP). */
+function getXiaozhiVisionUrl(req: Request): string {
+    const override = Deno.env.get('XIAOZHI_VISION_URL');
+    if (override) return override;
+    const url = new URL(req.url);
+    const host = req.headers.get('host') ?? url.host;
+    const proto = req.headers.get('x-forwarded-proto') ?? url.protocol.replace(':', '');
+    const scheme = proto === 'https' ? 'https' : 'http';
+    return `${scheme}://${host}/xiaozhi/vision/explain`;
+}
+
+/**
+ * XIAOZHI camera vision endpoint. The device POSTs a multipart form with a
+ * `question` text field and a `file` JPEG, plus an `Authorization: Bearer`
+ * token (the one we issued in the MCP initialize). We run a vision model and
+ * return `{ success, result }`, which the device hands back to the realtime
+ * model as the take_photo tool result.
+ *
+ * This is fully decoupled from the audio session, so it works regardless of
+ * the personality's audio provider (incl. OpenAI Realtime, which has no vision).
+ */
+async function handleXiaozhiVision(req: Request) {
+    const token = (req.headers.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
+    if (XIAOZHI_VISION_TOKEN && token !== XIAOZHI_VISION_TOKEN) {
+        return jsonResponse(401, { success: false, result: 'unauthorized' });
+    }
+    const deviceMac = req.headers.get('device-id') ?? '';
+
+    let question = '';
+    let jpeg: Uint8Array | null = null;
+    try {
+        const form = await req.formData();
+        question = String(form.get('question') ?? '');
+        const file = form.get('file');
+        if (file instanceof File) jpeg = new Uint8Array(await file.arrayBuffer());
+    } catch {
+        return jsonResponse(400, { success: false, result: 'invalid multipart form' });
+    }
+    if (!jpeg || jpeg.length === 0) {
+        return jsonResponse(400, { success: false, result: 'no image provided' });
+    }
+
+    try {
+        console.log(`XIAOZHI vision: ${deviceMac} q="${question}" jpeg=${jpeg.length}B`);
+        const description = await describeImage(jpeg, question);
+        return jsonResponse(200, { success: true, result: description });
+    } catch (error: any) {
+        console.error('XIAOZHI vision failed:', error?.message ?? error);
+        // 200 with a spoken-friendly message so the model degrades gracefully.
+        return jsonResponse(200, {
+            success: false,
+            result: "I couldn't make out the image just now.",
+        });
+    }
+}
+
 async function handleRequest(req: Request) {
     const url = new URL(req.url);
 
@@ -623,6 +705,20 @@ async function handleRequest(req: Request) {
             return await handleXiaozhiWebSocket(req);
         }
         return await handleWebSocket(req);
+    }
+
+    if (url.pathname === '/xiaozhi/vision/explain') {
+        if (req.method !== 'POST') {
+            return jsonResponse(405, { success: false, result: 'method not allowed' });
+        }
+        try {
+            return await handleXiaozhiVision(req);
+        } catch (error) {
+            return jsonResponse(500, {
+                success: false,
+                result: error instanceof Error ? error.message : 'internal error',
+            });
+        }
     }
 
     if (url.pathname === '/xiaozhi/ota' || url.pathname === '/xiaozhi/ota/') {
