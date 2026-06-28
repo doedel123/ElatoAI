@@ -11,6 +11,7 @@ import {
 } from 'npm:@google/genai';
 import { createOpusPacketizer, defaultGeminiVoice, extractSentences, geminiApiKey, isDev } from '../utils.ts';
 import { XIAOZHI_DEVICE_TOOL_BY_NAME, XIAOZHI_DEVICE_TOOLS } from '../device_tools.ts';
+import { classifyEmotion, heuristicEmotion } from '../emotion.ts';
 import { addConversation } from '../supabase.ts';
 
 export const connectToGemini = async ({
@@ -176,7 +177,6 @@ export const connectToGemini = async ({
                         type: 'server',
                         msg: 'RESPONSE.CREATED',
                     }));
-                    emitEmotion('neutral');
                     done = true;
                 }
             }
@@ -241,6 +241,15 @@ export const connectToGemini = async ({
                 // before the completion signal.
                 emitStt(inputTranscriptionText);
                 emitSentences(outputTranscriptionText);
+
+                // Hybrid emotion: instant heuristic + multilingual classifier.
+                if (emitTextEvents && outputTranscriptionText.trim()) {
+                    const guess = heuristicEmotion(outputTranscriptionText);
+                    if (guess) emitEmotion(guess);
+                    classifyEmotion(outputTranscriptionText)
+                        .then((e) => emitEmotion(e))
+                        .catch(() => {});
+                }
 
                 // Send completion signal
                 ws.send(JSON.stringify({

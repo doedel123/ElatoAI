@@ -5,6 +5,7 @@ import { RealtimeUtils } from "../realtime/utils.js";
 import { addConversation, getDeviceInfo } from "../supabase.ts";
 import { createOpusPacketizer, extractSentences, isDev, openaiApiKey, defaultOpenAIVoice } from "../utils.ts";
 import { XIAOZHI_DEVICE_TOOLS } from "../device_tools.ts";
+import { classifyEmotion, heuristicEmotion } from "../emotion.ts";
 
 const sendFirstMessage = (client: RealtimeClient, firstMessage: string) => {
     const event = {
@@ -64,6 +65,16 @@ export const connectToOpenAI = async ({
         if (emitTextEvents) {
             ws.send(JSON.stringify({ type: "server", msg: "EMOTION", emotion }));
         }
+    };
+    // Hybrid emotion: instant language-agnostic heuristic, then refine with the
+    // multilingual classifier. Fired once per assistant response.
+    let emotionSent = false;
+    const triggerEmotion = (text: string) => {
+        if (!emitTextEvents || emotionSent || !text.trim()) return;
+        emotionSent = true;
+        const guess = heuristicEmotion(text);
+        if (guess) emitEmotion(guess);
+        classifyEmotion(text).then((e) => emitEmotion(e)).catch(() => {});
     };
 
     // Instantiate new client
@@ -201,11 +212,14 @@ export const connectToOpenAI = async ({
                 const { sentences, rest } = extractSentences(assistantTranscript);
                 assistantTranscript = rest;
                 for (const sentence of sentences) emitSentence(sentence);
+                if (sentences.length) triggerEmotion(sentences[0]);
             }
         } else if (event.type === "response.audio_transcript.done" || event.type === "response.output_audio_transcript.done") {
             console.log(`${event.type}`, event);
             // Flush any trailing words that never hit a sentence boundary.
             emitSentence(assistantTranscript);
+            // Short replies without a sentence break still get an emotion.
+            triggerEmotion(event.transcript ?? assistantTranscript);
             assistantTranscript = "";
             await addConversation(
                 supabase,
@@ -224,7 +238,7 @@ export const connectToOpenAI = async ({
                         console.log("response.created", event);
                         opus.reset();
                         assistantTranscript = "";
-                        emitEmotion("neutral");
+                        emotionSent = false;
                         try {
                             const device = await getDeviceInfo(supabase, user.user_id);
 
