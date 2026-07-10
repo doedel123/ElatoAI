@@ -6,6 +6,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { authenticateUser, createOpusPacketizer } from './utils.ts';
 import { XiaozhiWebSocketAdapter } from './xiaozhi.ts';
 import { describeImage } from './vision.ts';
+import { generateSceneImage } from './image_gen.ts';
 import {
     createFirstMessage,
     createSystemPrompt,
@@ -338,6 +339,7 @@ async function handleConnection(
         emitTextEvents?: boolean;
         requestPhoto?: (question: string) => Promise<string>;
         callDeviceTool?: (name: string, args: Record<string, unknown>) => Promise<string>;
+        showImage?: (description: string) => void;
     } = {},
 ) {
     const { user, supabase } = payload;
@@ -402,6 +404,7 @@ async function handleConnection(
         emitTextEvents: opts.emitTextEvents,
         requestPhoto: opts.requestPhoto,
         callDeviceTool: opts.callDeviceTool,
+        showImage: opts.showImage,
     };
 
     switch (provider) {
@@ -547,6 +550,18 @@ async function handleXiaozhiWebSocket(req: Request) {
             emitTextEvents: true,
             requestPhoto: (question) => ws.requestPhoto(question),
             callDeviceTool: (name, callArgs) => ws.callDeviceTool(name, callArgs),
+            // Fire-and-forget: generate the image in the background, then push
+            // it to the device screen — never blocks the audio response.
+            showImage: (description) => {
+                console.log(`XIAOZHI show_image: "${description.slice(0, 80)}"`);
+                const durationMs = Number(Deno.env.get('XIAOZHI_IMAGE_DURATION_MS') ?? '5000');
+                generateSceneImage(description)
+                    .then((img) => {
+                        ws.sendImage(img.jpegBase64, img.width, img.height, durationMs);
+                        console.log(`XIAOZHI image pushed (${Math.round(img.jpegBase64.length / 1024)}KB b64, ${durationMs}ms)`);
+                    })
+                    .catch((e) => console.error('XIAOZHI image gen failed:', e?.message ?? e));
+            },
             // XIAOZHI decoder expects 60ms frames; downlink stays at 24kHz
             // (both OpenAI and Gemini output 24kHz audio).
             opusFactory: (sendPacket) =>

@@ -25,9 +25,13 @@ export const connectToGemini = async ({
     emitTextEvents,
     requestPhoto,
     callDeviceTool,
+    showImage,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
     const voiceName = user.personality?.oai_voice ?? defaultGeminiVoice;
+    const storyImageNudge = showImage && user.personality?.is_story
+        ? '\n\nYou can show pictures on the child\'s screen. Whenever you introduce or move to a new scene, call the show_image tool with a vivid visual description of that scene, then keep narrating.'
+        : '';
 
     const opus = (opusFactory ?? createOpusPacketizer)((packet) => ws.send(packet));
 
@@ -91,10 +95,24 @@ export const connectToGemini = async ({
             });
         }
     }
+    if (showImage) {
+        functionDeclarations.push({
+            name: 'show_image',
+            description:
+                "Generate and display a picture on the device's screen. Use when the user asks to see or show something, or to illustrate the current scene while telling a story. The image takes a few seconds to appear; keep talking meanwhile.",
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    description: { type: Type.STRING, description: 'A vivid, concrete visual description of the scene to draw.' },
+                },
+                required: ['description'],
+            },
+        });
+    }
 
     const config: LiveConnectConfig = {
         responseModalities: [Modality.AUDIO],
-        systemInstruction: systemPrompt,
+        systemInstruction: systemPrompt + storyImageNudge,
         speechConfig: {
             voiceConfig: {
                 prebuiltVoiceConfig: {
@@ -131,6 +149,9 @@ export const connectToGemini = async ({
             } catch (e: unknown) {
                 response = { success: false, error: (e as Error).message };
             }
+        } else if (fc.name === 'show_image' && showImage) {
+            showImage(fc.args?.description ?? '');
+            response = { success: true, message: 'The picture is being drawn and will appear shortly.' };
         } else {
             response = { success: false, error: `unknown tool ${fc.name}` };
         }

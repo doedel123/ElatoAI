@@ -47,6 +47,11 @@ const timeoutMs = Number(args.timeout ?? "30000");
 // --photo <jpg>: act as a camera device. Responds to the server's take_photo
 // MCP call by uploading this JPEG to the advertised vision URL.
 const photoPath = args.photo;
+// --save-image <path>: save any server-pushed show_image to disk.
+// --wait-image <seconds>: after the turn, keep listening this long for the
+// (asynchronously generated) image push.
+const saveImagePath = args["save-image"];
+const waitImageSec = Number(args["wait-image"] ?? "0");
 
 // Vision config the server hands us via MCP initialize.
 let visionCfg: { url: string; token: string } | null = null;
@@ -317,6 +322,35 @@ async function handleSimMcp(conn: Conn, payload: any) {
     }
 }
 
+function handleCustom(env: any) {
+    const p = env.payload;
+    if (p?.action === "show_image" && typeof p?.data === "string") {
+        const bytes = Uint8Array.from(atob(p.data), (c) => c.charCodeAt(0));
+        log(`← custom show_image: ${p.format} ${p.width}x${p.height} ${Math.round(bytes.length / 1024)}KB`);
+        if (saveImagePath) {
+            Deno.writeFileSync(saveImagePath, bytes);
+            log(`  saved image to ${saveImagePath}`);
+        }
+    } else {
+        log(`← custom ${JSON.stringify(p).slice(0, 100)}`);
+    }
+}
+
+async function lingerForImage(conn: Conn, seconds: number) {
+    if (seconds <= 0) return;
+    log(`waiting ${seconds}s for an async image push…`);
+    const deadline = Date.now() + seconds * 1000;
+    while (Date.now() < deadline) {
+        const m = await conn.recv(deadline);
+        if (!m) break;
+        if (m.kind === "text") {
+            const env = JSON.parse(m.data);
+            if (env.type === "custom") { handleCustom(env); return; }
+        }
+    }
+    log("no image received within wait window");
+}
+
 // ---- turn expectation ----------------------------------------------------
 async function expectTurn(conn: Conn, sessionID: string, bargeAt = 0): Promise<boolean> {
     const dec = new Decoder({ channels: 1, sample_rate: DOWNSTREAM_HZ });
@@ -367,6 +401,9 @@ async function expectTurn(conn: Conn, sessionID: string, bargeAt = 0): Promise<b
             case "mcp":
                 await handleSimMcp(conn, env.payload);
                 break;
+            case "custom":
+                handleCustom(env);
+                break;
             case "alert":
                 log(`← alert status=${env.status} message=${JSON.stringify(env.message)}`);
                 return false;
@@ -402,7 +439,9 @@ async function runFull(conn: Conn, sessionID: string, bargeAt = 0): Promise<bool
     await sendAudio(conn);
     conn.sendText({ type: "listen", session_id: sessionID, state: "stop" });
     log("→ listen.stop");
-    return await expectTurn(conn, sessionID, bargeAt);
+    const ok = await expectTurn(conn, sessionID, bargeAt);
+    await lingerForImage(conn, waitImageSec);
+    return ok;
 }
 
 async function main() {

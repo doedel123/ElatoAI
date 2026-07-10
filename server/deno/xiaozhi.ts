@@ -505,6 +505,27 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
         }
     }
 
+    /**
+     * Push a generated image to the device screen as base64 JPEG. Sent as a
+     * `custom` message so it rides the existing protocol; firmware must handle
+     * payload.action === "show_image" (decode base64 -> JPEG -> LVGL).
+     */
+    sendImage(jpegBase64: string, width: number, height: number, durationMs = 5000) {
+        this.rawSend(JSON.stringify({
+            type: "custom",
+            session_id: this.sessionId,
+            payload: {
+                action: "show_image",
+                format: "jpeg",
+                encoding: "base64",
+                width,
+                height,
+                duration_ms: durationMs,
+                data: jpegBase64,
+            },
+        }));
+    }
+
     private sendTts(state: "start" | "stop") {
         this.rawSend(JSON.stringify({
             type: "tts",

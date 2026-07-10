@@ -40,6 +40,7 @@ export const connectToOpenAI = async ({
     emitTextEvents,
     requestPhoto,
     callDeviceTool,
+    showImage,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
 
@@ -181,6 +182,34 @@ export const connectToOpenAI = async ({
                 },
             );
         }
+    }
+
+    // Screen image (XIAOZHI with a screen): generate + display a picture. The
+    // handler returns instantly; generation/push happens in the background.
+    if (showImage) {
+        client.addTool(
+            {
+                type: "function",
+                name: "show_image",
+                description:
+                    "Generate and display a picture on the device's screen. Use when the user asks to see or show something, or to illustrate the current scene while telling a story. The image takes a few seconds to appear; keep talking meanwhile.",
+                parameters: {
+                    type: "object",
+                    strict: true,
+                    properties: {
+                        description: {
+                            type: "string",
+                            description: "A vivid, concrete visual description of the scene to draw.",
+                        },
+                    },
+                    required: ["description"],
+                },
+            },
+            (args: any) => {
+                showImage(args.description ?? "");
+                return { success: true, message: "The picture is being drawn and will appear shortly. Continue naturally." };
+            },
+        );
     }
 
     // Relay: OpenAI Realtime API Event -> Browser Event
@@ -441,7 +470,10 @@ export const connectToOpenAI = async ({
                 silence_duration_ms: 1000,
             },
             voice: user.personality?.oai_voice ?? defaultOpenAIVoice,
-            instructions: systemPrompt,
+            instructions: showImage && user.personality?.is_story
+                ? systemPrompt +
+                    "\n\nYou can show pictures on the child's screen. Whenever you introduce or move to a new scene, call the show_image tool with a vivid visual description of that scene, then keep narrating."
+                : systemPrompt,
             input_audio_transcription: { model: "whisper-1" },
         };
         await client.connect(sessionOptions as any);

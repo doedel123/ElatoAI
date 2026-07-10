@@ -245,5 +245,9 @@ declare global {
         // device-control tools (volume, brightness, theme, status) that route
         // to the device via MCP tools/call.
         callDeviceTool?: (name: string, args: Record<string, unknown>) => Promise<string>;
+        // When present (XIAOZHI with a screen), providers register a show_image
+        // tool. Fire-and-forget: kicks off async image generation and pushes the
+        // result to the device screen — does not block the audio response.
+        showImage?: (description: string) => void;
     }
 }
