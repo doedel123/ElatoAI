@@ -26,6 +26,7 @@ export const connectToGemini = async ({
     requestPhoto,
     callDeviceTool,
     showImage,
+    stylizePhoto,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
     const voiceName = user.personality?.oai_voice ?? defaultGeminiVoice;
@@ -109,6 +110,20 @@ export const connectToGemini = async ({
             },
         });
     }
+    if (stylizePhoto) {
+        functionDeclarations.push({
+            name: 'stylize_photo',
+            description:
+                "Take a photo with the device's camera and transform it into a new AI-generated picture in a given artistic style (e.g. cartoon, watercolor, pixel art), shown on the device's screen. Use when the user asks to take a photo AND redraw or restyle it. The result takes a few seconds; keep talking meanwhile.",
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    style: { type: Type.STRING, description: "The artistic style or transformation to apply, e.g. 'cartoon style'." },
+                },
+                required: ['style'],
+            },
+        });
+    }
 
     const config: LiveConnectConfig = {
         responseModalities: [Modality.AUDIO],
@@ -152,6 +167,13 @@ export const connectToGemini = async ({
         } else if (fc.name === 'show_image' && showImage) {
             showImage(fc.args?.description ?? '');
             response = { success: true, message: 'The picture is being drawn and will appear shortly.' };
+        } else if (fc.name === 'stylize_photo' && stylizePhoto) {
+            try {
+                const message = await stylizePhoto(fc.args?.style ?? 'cartoon style');
+                response = { success: true, message };
+            } catch (e: unknown) {
+                response = { success: false, error: (e as Error).message };
+            }
         } else {
             response = { success: false, error: `unknown tool ${fc.name}` };
         }

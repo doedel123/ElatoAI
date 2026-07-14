@@ -41,6 +41,7 @@ export const connectToOpenAI = async ({
     requestPhoto,
     callDeviceTool,
     showImage,
+    stylizePhoto,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
 
@@ -208,6 +209,38 @@ export const connectToOpenAI = async ({
             (args: any) => {
                 showImage(args.description ?? "");
                 return { success: true, message: "The picture is being drawn and will appear shortly. Continue naturally." };
+            },
+        );
+    }
+
+    // Photo restyling (XIAOZHI with camera + screen): take a photo and turn it
+    // into a new AI-generated picture in the requested style.
+    if (stylizePhoto) {
+        client.addTool(
+            {
+                type: "function",
+                name: "stylize_photo",
+                description:
+                    "Take a photo with the device's camera and transform it into a new AI-generated picture in a given artistic style (e.g. cartoon, watercolor, pixel art), shown on the device's screen. Use when the user asks to take a photo AND redraw or restyle it. The result takes a few seconds; keep talking meanwhile.",
+                parameters: {
+                    type: "object",
+                    strict: true,
+                    properties: {
+                        style: {
+                            type: "string",
+                            description: "The artistic style or transformation to apply, e.g. 'cartoon style'.",
+                        },
+                    },
+                    required: ["style"],
+                },
+            },
+            async (args: any) => {
+                try {
+                    const message = await stylizePhoto(args.style ?? "cartoon style");
+                    return { success: true, message };
+                } catch (e: unknown) {
+                    return { success: false, error: (e as Error).message };
+                }
             },
         );
     }

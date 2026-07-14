@@ -6,7 +6,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { authenticateUser, createOpusPacketizer } from './utils.ts';
 import { XiaozhiWebSocketAdapter } from './xiaozhi.ts';
 import { describeImage } from './vision.ts';
-import { generateSceneImage } from './image_gen.ts';
+import { generateSceneImage, stylizeImage } from './image_gen.ts';
 import {
     createFirstMessage,
     createSystemPrompt,
@@ -41,6 +41,28 @@ const XIAOZHI_PROVIDER_UPLINK_RATE: Record<string, number> = {
 // Shared secret handed to the device in the MCP `initialize` (capabilities.vision.token)
 // and verified on the vision endpoint. Keeps random callers from hitting the VLM.
 const XIAOZHI_VISION_TOKEN = Deno.env.get('XIAOZHI_VISION_TOKEN') ?? 'elato-vision';
+
+// Pending camera captures for the photo->stylize flow, keyed by normalized MAC.
+// When set, the vision endpoint hands the next uploaded photo from that device
+// to the waiter instead of describing it.
+const pendingPhotoCaptures = new Map<string, { resolve: (jpeg: Uint8Array) => void }>();
+
+function awaitDevicePhoto(mac: string, timeoutMs = 25000): Promise<Uint8Array> {
+    const key = normalizeMacAddress(mac);
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            pendingPhotoCaptures.delete(key);
+            reject(new Error('timed out waiting for the camera photo'));
+        }, timeoutMs);
+        pendingPhotoCaptures.set(key, {
+            resolve: (jpeg) => {
+                clearTimeout(timer);
+                pendingPhotoCaptures.delete(key);
+                resolve(jpeg);
+            },
+        });
+    });
+}
 
 function jsonResponse(
     status: number,
@@ -340,6 +362,7 @@ async function handleConnection(
         requestPhoto?: (question: string) => Promise<string>;
         callDeviceTool?: (name: string, args: Record<string, unknown>) => Promise<string>;
         showImage?: (description: string) => void;
+        stylizePhoto?: (instruction: string) => Promise<string>;
     } = {},
 ) {
     const { user, supabase } = payload;
@@ -405,6 +428,7 @@ async function handleConnection(
         requestPhoto: opts.requestPhoto,
         callDeviceTool: opts.callDeviceTool,
         showImage: opts.showImage,
+        stylizePhoto: opts.stylizePhoto,
     };
 
     switch (provider) {
@@ -488,16 +512,16 @@ async function handleWebSocket(req: Request) {
 async function handleXiaozhiWebSocket(req: Request) {
     let user: IUser | null;
     let supabase: SupabaseClient;
+    // Real devices send the MAC as a header; the `?device_id=` query param
+    // is a fallback for clients that can't set headers (e.g. the simulator,
+    // since Deno's WebSocket client has no header support).
+    const deviceMac = req.headers.get('device-id') ??
+        req.headers.get('x-device-mac') ??
+        new URL(req.url).searchParams.get('device_id');
+    if (!deviceMac) {
+        return new Response('Device-Id header required', { status: 401 });
+    }
     try {
-        // Real devices send the MAC as a header; the `?device_id=` query param
-        // is a fallback for clients that can't set headers (e.g. the simulator,
-        // since Deno's WebSocket client has no header support).
-        const deviceMac = req.headers.get('device-id') ??
-            req.headers.get('x-device-mac') ??
-            new URL(req.url).searchParams.get('device_id');
-        if (!deviceMac) {
-            return new Response('Device-Id header required', { status: 401 });
-        }
 
         const skipDeviceRegistration =
             Deno.env.get('SKIP_DEVICE_REGISTRATION') === 'True' ||
@@ -550,6 +574,28 @@ async function handleXiaozhiWebSocket(req: Request) {
             emitTextEvents: true,
             requestPhoto: (question) => ws.requestPhoto(question),
             callDeviceTool: (name, callArgs) => ws.callDeviceTool(name, callArgs),
+            // Photo -> AI-restyled picture: trigger the camera, grab the upload
+            // at the vision endpoint, stylize via Gemini in the background, and
+            // push the result to the screen.
+            stylizePhoto: async (instruction) => {
+                const photoPromise = awaitDevicePhoto(deviceMac);
+                const trigger = ws.callDeviceTool('self.camera.take_photo', {
+                    question: `stylize: ${instruction}`,
+                });
+                // If the capture trigger fails (no camera), abort the wait early.
+                const jpeg = await Promise.race([
+                    photoPromise,
+                    trigger.then(() => photoPromise),
+                ]);
+                const durationMs = Number(Deno.env.get('XIAOZHI_IMAGE_DURATION_MS') ?? '5000');
+                stylizeImage(jpeg, instruction)
+                    .then((img) => {
+                        ws.sendImage(img.jpegBase64, img.width, img.height, durationMs);
+                        console.log(`XIAOZHI stylized image pushed (${Math.round(img.jpegBase64.length / 1024)}KB b64)`);
+                    })
+                    .catch((e) => console.error('XIAOZHI stylize failed:', e?.message ?? e));
+                return 'Photo captured. The stylized picture is being generated and will appear on the screen in a few seconds.';
+            },
             // Fire-and-forget: generate the image in the background, then push
             // it to the device screen — never blocks the audio response.
             showImage: (description) => {
@@ -696,6 +742,18 @@ async function handleXiaozhiVision(req: Request) {
     }
     if (!jpeg || jpeg.length === 0) {
         return jsonResponse(400, { success: false, result: 'no image provided' });
+    }
+
+    // Photo->stylize flow: a waiter registered by stylize_photo consumes this
+    // upload; skip the describe step and confirm to the realtime model.
+    const pending = pendingPhotoCaptures.get(normalizeMacAddress(deviceMac));
+    if (pending) {
+        console.log(`XIAOZHI vision: ${deviceMac} photo captured for stylize (${jpeg.length}B)`);
+        pending.resolve(jpeg);
+        return jsonResponse(200, {
+            success: true,
+            result: 'Photo captured. The stylized picture is being generated and will appear on the screen shortly.',
+        });
     }
 
     try {

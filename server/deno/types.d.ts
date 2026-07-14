@@ -249,5 +249,10 @@ declare global {
         // tool. Fire-and-forget: kicks off async image generation and pushes the
         // result to the device screen — does not block the audio response.
         showImage?: (description: string) => void;
+        // When present (XIAOZHI with camera + screen), providers register a
+        // stylize_photo tool: takes a camera photo, restyles it via an image
+        // model (photo as reference), and pushes the result to the screen.
+        // Resolves once the photo is captured; generation continues async.
+        stylizePhoto?: (instruction: string) => Promise<string>;
     }
 }

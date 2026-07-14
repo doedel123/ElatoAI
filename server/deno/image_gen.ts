@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { Image } from "imagescript";
-import { openaiApiKey } from "./utils.ts";
+import { geminiApiKey, openaiApiKey } from "./utils.ts";
 
 // gpt-image-1 only generates >=1024px (1024x1024, 1536x1024, 1024x1536).
 // We generate at 1536x1024 (3:2) then downscale to the device screen, which
@@ -57,23 +57,93 @@ export async function generateSceneImage(description: string): Promise<Generated
     const b64 = data?.data?.[0]?.b64_json;
     if (typeof b64 !== "string" || !b64) throw new Error("image gen returned no image");
 
-    let jpegBytes: Uint8Array = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    let outW = genW || 1536;
-    let outH = genH || 1024;
+    const jpegBytes: Uint8Array = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    return await toDeviceJpeg(jpegBytes, genW || 1536, genH || 1024);
+}
 
-    // Downscale to the device screen so the payload stays tiny.
-    if (IMAGE_TARGET_SIZE.includes("x")) {
-        const [tw, th] = IMAGE_TARGET_SIZE.split("x").map(Number);
-        try {
-            const img = await Image.decode(jpegBytes);
+/**
+ * Transcode any PNG/JPEG bytes to a small device-ready JPEG (downscaled to
+ * IMAGE_TARGET_SIZE unless set to "none"), base64-encoded.
+ */
+async function toDeviceJpeg(
+    bytes: Uint8Array,
+    fallbackW: number,
+    fallbackH: number,
+): Promise<GeneratedImage> {
+    try {
+        const img = await Image.decode(bytes);
+        let outW = img.width;
+        let outH = img.height;
+        if (IMAGE_TARGET_SIZE.includes("x")) {
+            const [tw, th] = IMAGE_TARGET_SIZE.split("x").map(Number);
             img.resize(tw, th);
-            jpegBytes = await img.encodeJPEG(IMAGE_JPEG_QUALITY);
             outW = tw;
             outH = th;
-        } catch (e) {
-            console.warn("image downscale failed, sending original:", (e as Error).message);
+        }
+        const jpeg = await img.encodeJPEG(IMAGE_JPEG_QUALITY);
+        return { jpegBase64: Buffer.from(jpeg).toString("base64"), width: outW, height: outH };
+    } catch (e) {
+        // Source may already be a device-compatible JPEG — send it unchanged.
+        console.warn("image transcode failed, sending original:", (e as Error).message);
+        return { jpegBase64: Buffer.from(bytes).toString("base64"), width: fallbackW, height: fallbackH };
+    }
+}
+
+// Reference-based restyling ("photo -> cartoon") via Gemini image generation.
+const STYLIZE_MODEL = Deno.env.get("STYLIZE_MODEL") ?? "gemini-2.5-flash-image";
+
+/**
+ * Turn a camera photo into a new AI-generated picture in the given style,
+ * using the photo as the reference image. Returns a device-ready JPEG.
+ */
+export async function stylizeImage(
+    photoJpeg: Uint8Array,
+    instruction: string,
+): Promise<GeneratedImage> {
+    if (!geminiApiKey) throw new Error("GEMINI_API_KEY not configured for photo stylization");
+
+    const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${STYLIZE_MODEL}:generateContent?key=${geminiApiKey}`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [
+                        {
+                            inlineData: {
+                                mimeType: "image/jpeg",
+                                data: Buffer.from(photoJpeg).toString("base64"),
+                            },
+                        },
+                        {
+                            text:
+                                `Redraw this photo: ${instruction.trim()}. Keep the main subject and ` +
+                                `composition clearly recognizable. Landscape orientation. No text, ` +
+                                `letters or captions anywhere in the image.`,
+                        },
+                    ],
+                }],
+                generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+            }),
+        },
+    );
+
+    if (!resp.ok) {
+        throw new Error(`stylize error ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+    }
+    const data = await resp.json();
+    const parts = data?.candidates?.[0]?.content?.parts ?? [];
+    let b64: string | null = null;
+    for (const p of parts) {
+        const inline = p?.inlineData ?? p?.inline_data;
+        if (inline?.data) {
+            b64 = inline.data;
+            break;
         }
     }
+    if (!b64) throw new Error("stylize model returned no image");
 
-    return { jpegBase64: Buffer.from(jpegBytes).toString("base64"), width: outW, height: outH };
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    return await toDeviceJpeg(bytes, 480, 320);
 }
