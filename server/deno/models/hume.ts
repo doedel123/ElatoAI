@@ -32,7 +32,7 @@ export const connectToHume = ({
     const humeWs = new WebSocket(humeWsUrl);
 
     let isConnected = false;
-    const messageQueue: RawData[] = [];
+    const messageQueue: Array<{ data: RawData; isBinary: boolean }> = [];
     let createdSent = false;
 
     // Handle Hume WebSocket connection
@@ -61,7 +61,7 @@ export const connectToHume = ({
         while (messageQueue.length > 0) {
             const queuedMessage = messageQueue.shift();
             if (queuedMessage) {
-                messageHandler(queuedMessage, true); // Assume binary for queued audio
+                messageHandler(queuedMessage.data, queuedMessage.isBinary);
             }
         }
     });
@@ -260,7 +260,7 @@ export const connectToHume = ({
     // Set up ESP32 WebSocket handlers
     ws.on("message", (data: RawData, isBinary: boolean) => {
         if (!isConnected) {
-            messageQueue.push(data);
+            messageQueue.push({ data, isBinary });
         } else {
             messageHandler(data, isBinary);
         }

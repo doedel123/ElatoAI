@@ -388,7 +388,7 @@ export const connectToOpenAI = async ({
 
     // Relay: Browser Event -> OpenAI Realtime API Event
     // We need to queue data waiting for the OpenAI connection
-    const messageQueue: RawData[] = [];
+    const messageQueue: Array<{ data: RawData; isBinary: boolean }> = [];
 
     const messageHandler = async (data: any, isBinary: boolean) => {
         try {
@@ -465,7 +465,9 @@ export const connectToOpenAI = async ({
 
     ws.on("message", (data: any, isBinary: boolean) => {
         if (!client.isConnected()) {
-            messageQueue.push(data);
+            // Keep the binary flag — audio queued before the OpenAI connection
+            // completes must not be replayed as JSON (and vice versa).
+            messageQueue.push({ data, isBinary });
         } else {
             messageHandler(data, isBinary);
         }
@@ -517,6 +519,7 @@ export const connectToOpenAI = async ({
     }
     console.log(`Connected to OpenAI successfully!`);
     while (messageQueue.length) {
-        messageHandler(messageQueue.shift(), false);
+        const queued = messageQueue.shift()!;
+        messageHandler(queued.data, queued.isBinary);
     }
 };

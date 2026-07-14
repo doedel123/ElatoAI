@@ -32,7 +32,7 @@ export const connectToGrok = async ({
     });
 
     let isConnected = false;
-    const messageQueue: RawData[] = [];
+    const messageQueue: Array<{ data: RawData; isBinary: boolean }> = [];
 
     let createdSent = false;
     let outputTranscript = "";
@@ -91,7 +91,7 @@ export const connectToGrok = async ({
         while (messageQueue.length > 0) {
             const queuedMessage = messageQueue.shift();
             if (queuedMessage) {
-                messageHandler(queuedMessage, true);
+                messageHandler(queuedMessage.data, queuedMessage.isBinary);
             }
         }
     });
@@ -201,7 +201,7 @@ export const connectToGrok = async ({
 
     ws.on("message", (data: RawData, isBinary: boolean) => {
         if (!isConnected) {
-            messageQueue.push(data);
+            messageQueue.push({ data, isBinary });
         } else {
             messageHandler(data, isBinary);
         }
