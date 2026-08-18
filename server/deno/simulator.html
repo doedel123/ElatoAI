@@ -1,0 +1,1756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XIAOZHI ESP32 Web Simulator | ElatoAI</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0a0d14;
+            --bg-surface: #121824;
+            --bg-card: #182032;
+            --bg-card-hover: #1e2942;
+            --border-subtle: #222f46;
+            --border-bright: #3b82f6;
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.35);
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --accent-purple: #8b5cf6;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+            --device-bezel: #1a2234;
+            --device-screen: #06090e;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* Top Header */
+        header {
+            background: rgba(18, 24, 36, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-subtle);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-icon {
+            width: 38px;
+            height: 38px;
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: 0 0 16px var(--primary-glow);
+        }
+
+        .brand-title {
+            font-weight: 800;
+            font-size: 18px;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, #ffffff, #94a3b8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--accent-cyan);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            background: rgba(100, 116, 139, 0.15);
+            color: var(--text-muted);
+            border: 1px solid var(--border-subtle);
+            transition: all 0.3s ease;
+        }
+
+        .connection-status.connected {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .connection-status.connecting {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--accent-amber);
+            border-color: rgba(245, 158, 11, 0.3);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        /* Main Grid */
+        main {
+            flex: 1;
+            padding: 20px 24px;
+            display: grid;
+            grid-template-columns: 420px 380px 1fr;
+            gap: 20px;
+            max-width: 1720px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        @media (max-width: 1380px) {
+            main {
+                grid-template-columns: 400px 1fr;
+            }
+            .right-column {
+                grid-column: span 2;
+            }
+        }
+
+        @media (max-width: 900px) {
+            main {
+                grid-template-columns: 1fr;
+            }
+            .right-column {
+                grid-column: span 1;
+            }
+        }
+
+        /* Panels & Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 16px;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Virtual Device Enclosure */
+        .device-container {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .device-body {
+            background: linear-gradient(145deg, #1e283c, #131a29);
+            border: 3px solid #2b3852;
+            border-radius: 28px;
+            padding: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), inset 0 2px 4px rgba(255, 255, 255, 0.1);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .device-screen-bezel {
+            background: #0d121c;
+            border-radius: 18px;
+            padding: 12px;
+            border: 2px solid #222c40;
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);
+        }
+
+        .device-screen {
+            background: var(--device-screen);
+            border-radius: 10px;
+            height: 250px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #1a2538;
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.9);
+            transition: filter 0.3s ease;
+        }
+
+        /* Screen Elements */
+        .screen-topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 10px;
+            font-size: 11px;
+            font-family: 'Fira Code', monospace;
+            color: var(--text-dim);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 10;
+        }
+
+        .screen-topbar-icons {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .state-badge {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            background: #1e293b;
+            color: #94a3b8;
+        }
+
+        .state-badge.listening {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+
+        .state-badge.speaking {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--accent-cyan);
+            animation: pulse 1.5s infinite;
+        }
+
+        .state-badge.thinking {
+            background: rgba(245, 158, 11, 0.2);
+            color: var(--accent-amber);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .screen-main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            padding: 10px;
+        }
+
+        /* Robot Avatar Face */
+        .avatar-face {
+            width: 120px;
+            height: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .face-eyes {
+            display: flex;
+            gap: 32px;
+            align-items: center;
+        }
+
+        .face-eye {
+            width: 24px;
+            height: 32px;
+            background: var(--accent-cyan);
+            border-radius: 12px;
+            box-shadow: 0 0 16px var(--accent-cyan);
+            transition: all 0.2s ease;
+        }
+
+        .face-mouth {
+            position: absolute;
+            bottom: 22px;
+            width: 36px;
+            height: 8px;
+            background: var(--accent-cyan);
+            border-radius: 4px;
+            box-shadow: 0 0 12px var(--accent-cyan);
+            transition: all 0.15s ease;
+        }
+
+        /* Emotions */
+        .avatar-face.happy .face-eye {
+            height: 18px;
+            border-radius: 12px 12px 0 0;
+            transform: translateY(-4px);
+        }
+        .avatar-face.happy .face-mouth {
+            height: 16px;
+            border-radius: 0 0 16px 16px;
+            width: 44px;
+        }
+
+        .avatar-face.speaking .face-mouth {
+            animation: mouthTalk 0.25s infinite alternate;
+        }
+
+        @keyframes mouthTalk {
+            0% { height: 6px; width: 30px; }
+            100% { height: 22px; width: 44px; border-radius: 12px; }
+        }
+
+        .avatar-face.thinking .face-eye {
+            height: 16px;
+            width: 28px;
+            transform: translateY(-8px) rotate(8deg);
+        }
+
+        .avatar-face.surprised .face-eye {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+        }
+        .avatar-face.surprised .face-mouth {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+        }
+
+        .avatar-face.sleepy .face-eye {
+            height: 6px;
+            width: 26px;
+            border-radius: 3px;
+        }
+        .avatar-face.sleepy .face-mouth {
+            width: 14px;
+            height: 6px;
+        }
+
+        /* AI Image Overlay on Screen */
+        .screen-image-overlay {
+            position: absolute;
+            inset: 0;
+            background: #000;
+            display: none;
+            flex-direction: column;
+            z-index: 20;
+        }
+
+        .screen-image-overlay.active {
+            display: flex;
+        }
+
+        .screen-image-overlay img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .image-overlay-close {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        /* Subtitle Bar on Screen */
+        .screen-subtitles {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(0deg, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.7) 70%, transparent 100%);
+            padding: 8px 12px;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #ffffff;
+            text-align: center;
+            min-height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 15;
+            font-weight: 500;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        }
+
+        /* Physical Hardware Buttons */
+        .device-controls-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            gap: 10px;
+            padding-top: 4px;
+        }
+
+        .hw-btn {
+            background: linear-gradient(180deg, #2a374f, #1b2435);
+            border: 1px solid #3d4f70;
+            color: var(--text-main);
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.1);
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+
+        .hw-btn:hover {
+            background: linear-gradient(180deg, #324361, #212c40);
+            border-color: #4b628a;
+            transform: translateY(-1px);
+        }
+
+        .hw-btn:active {
+            transform: translateY(2px);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.6);
+        }
+
+        .hw-btn.primary {
+            background: linear-gradient(180deg, #2563eb, #1d4ed8);
+            border-color: #60a5fa;
+            color: #ffffff;
+            box-shadow: 0 4px 14px var(--primary-glow);
+        }
+
+        .hw-btn.primary.active {
+            background: linear-gradient(180deg, #10b981, #059669);
+            border-color: #34d399;
+            box-shadow: 0 0 18px rgba(16, 185, 129, 0.5);
+        }
+
+        .hw-btn.danger {
+            background: linear-gradient(180deg, #dc2626, #b91c1c);
+            border-color: #f87171;
+            color: #ffffff;
+        }
+
+        .mode-selector {
+            display: flex;
+            background: #090d14;
+            border-radius: 8px;
+            padding: 3px;
+            border: 1px solid var(--border-subtle);
+            margin-top: 4px;
+        }
+
+        .mode-btn {
+            flex: 1;
+            padding: 5px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            border: none;
+            background: transparent;
+            color: var(--text-dim);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .mode-btn.active {
+            background: var(--bg-card);
+            color: var(--text-main);
+            border: 1px solid var(--border-subtle);
+        }
+
+        /* Waveform / Visualizer */
+        .visualizer-box {
+            background: #0c1017;
+            border-radius: 10px;
+            padding: 10px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            border: 1px solid var(--border-subtle);
+        }
+
+        .visualizer-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        .audio-bars {
+            height: 32px;
+            display: flex;
+            align-items: flex-end;
+            gap: 3px;
+        }
+
+        .audio-bar {
+            flex: 1;
+            background: var(--primary);
+            border-radius: 2px;
+            min-height: 3px;
+            height: 3px;
+            transition: height 0.05s ease;
+        }
+
+        .audio-bar.mic {
+            background: var(--accent-green);
+        }
+
+        /* Camera / Webcam Column */
+        .webcam-card {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .webcam-container {
+            width: 100%;
+            height: 230px;
+            background: #090d14;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* mirror */
+        }
+
+        .camera-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
+            backdrop-filter: blur(8px);
+        }
+
+        .camera-flash {
+            position: absolute;
+            inset: 0;
+            background: #ffffff;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.1s ease;
+            z-index: 30;
+        }
+
+        .camera-flash.flash {
+            opacity: 0.9;
+        }
+
+        /* Snapshot Gallery */
+        .snapshot-gallery {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            padding-bottom: 6px;
+        }
+
+        .snapshot-thumb {
+            width: 72px;
+            height: 54px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border-subtle);
+            flex-shrink: 0;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .snapshot-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* Right Column: Protocol Console */
+        .console-column {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            height: 100%;
+        }
+
+        .console-card {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 550px;
+        }
+
+        .console-tabs {
+            display: flex;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-subtle);
+            padding-bottom: 10px;
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--text-muted);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .tab-btn.active {
+            background: rgba(59, 130, 246, 0.15);
+            color: var(--primary);
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .tab-btn:hover:not(.active) {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .log-container {
+            flex: 1;
+            background: #080c14;
+            border-radius: 10px;
+            padding: 12px;
+            overflow-y: auto;
+            font-family: 'Fira Code', monospace;
+            font-size: 11.5px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            border: 1px solid var(--border-subtle);
+            max-height: 600px;
+        }
+
+        .log-entry {
+            display: flex;
+            gap: 10px;
+            line-height: 1.5;
+            word-break: break-word;
+            padding: 2px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+        }
+
+        .log-time {
+            color: var(--text-dim);
+            flex-shrink: 0;
+        }
+
+        .log-tag {
+            font-weight: 700;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            flex-shrink: 0;
+        }
+
+        .log-tag.ws { background: #1e293b; color: #94a3b8; }
+        .log-tag.stt { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); }
+        .log-tag.tts { background: rgba(59, 130, 246, 0.2); color: var(--primary); }
+        .log-tag.mcp { background: rgba(139, 92, 246, 0.2); color: var(--accent-purple); }
+        .log-tag.vision { background: rgba(245, 158, 11, 0.2); color: var(--accent-amber); }
+        .log-tag.image { background: rgba(244, 63, 94, 0.2); color: var(--accent-rose); }
+        .log-tag.error { background: rgba(239, 68, 68, 0.3); color: #f87171; }
+        .log-tag.audio { background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); }
+
+        .log-msg {
+            color: var(--text-main);
+            flex: 1;
+        }
+
+        /* Config Form */
+        .config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .input-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+        }
+
+        .input-field {
+            background: #090d14;
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 13px;
+            color: var(--text-main);
+            font-family: 'Fira Code', monospace;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        .input-field:focus {
+            border-color: var(--primary);
+        }
+
+        .btn-small {
+            padding: 4px 10px;
+            font-size: 11px;
+            border-radius: 6px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-subtle);
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .btn-small:hover {
+            color: var(--text-main);
+            border-color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <div class="brand-icon">⚡</div>
+            <div>
+                <div class="brand-title">XIAOZHI ESP32 Hardware Simulator</div>
+            </div>
+            <span class="brand-badge">Voice & Vision</span>
+        </div>
+
+        <div class="header-controls">
+            <div id="conn-badge" class="connection-status">
+                <div class="status-dot"></div>
+                <span id="conn-text">Disconnected</span>
+            </div>
+
+            <button id="btn-connect" class="hw-btn primary">
+                <span>🔌 Connect WS</span>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <!-- LEFT COLUMN: Virtual ESP32 Hardware -->
+        <div class="device-container">
+            <div class="device-body">
+                <div class="device-screen-bezel">
+                    <div id="lcd-screen" class="device-screen">
+                        <!-- Top status bar -->
+                        <div class="screen-topbar">
+                            <div class="screen-topbar-icons">
+                                <span>📶 WiFi</span>
+                                <span>🔋 95%</span>
+                                <span id="screen-vol">🔊 70</span>
+                            </div>
+                            <div id="screen-state" class="state-badge">IDLE</div>
+                        </div>
+
+                        <!-- Face / Avatar -->
+                        <div class="screen-main">
+                            <div id="avatar" class="avatar-face neutral">
+                                <div class="face-eyes">
+                                    <div class="face-eye"></div>
+                                    <div class="face-eye"></div>
+                                </div>
+                                <div class="face-mouth"></div>
+                            </div>
+
+                            <!-- AI Generated Image Overlay -->
+                            <div id="image-overlay" class="screen-image-overlay">
+                                <button class="image-overlay-close" onclick="closeImageOverlay()">✕ Close</button>
+                                <img id="overlay-img" src="" alt="AI generated picture">
+                            </div>
+
+                            <!-- Live Subtitles -->
+                            <div id="screen-subtitles" class="screen-subtitles">
+                                Click 'Connect WS' to begin
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hardware Control Buttons -->
+                <div class="device-controls-row">
+                    <button id="btn-talk" class="hw-btn primary" style="flex: 2;">
+                        <span id="talk-icon">🎙️</span> <span id="talk-label">Push to Talk</span>
+                    </button>
+                    <button id="btn-interrupt" class="hw-btn danger" style="flex: 1;" title="Interrupt assistant turn">
+                        <span>⏹️ Stop</span>
+                    </button>
+                </div>
+
+                <!-- Voice Mode Toggle -->
+                <div class="mode-selector">
+                    <button id="mode-ptt" class="mode-btn active" onclick="setVoiceMode('ptt')">🎙️ Push-to-Talk (Hold Space)</button>
+                    <button id="mode-continuous" class="mode-btn" onclick="setVoiceMode('continuous')">🔊 Auto-Listen (Always on)</button>
+                </div>
+            </div>
+
+            <!-- Audio Output & Input Visualizers -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">📊 Audio Stream Status</span>
+                    <span id="audio-stats" style="font-size: 11px; font-family: 'Fira Code'; color: var(--text-dim);">Uplink: 0 pkts</span>
+                </div>
+
+                <div class="visualizer-box">
+                    <div class="visualizer-label">
+                        <span>Microphone Input (16kHz Resampled)</span>
+                        <span id="mic-level-text">0%</span>
+                    </div>
+                    <div id="mic-bars" class="audio-bars">
+                        <!-- Bars dynamically added -->
+                    </div>
+                </div>
+
+                <div class="visualizer-box">
+                    <div class="visualizer-label">
+                        <span>Speaker Output (24kHz Downlink)</span>
+                        <span id="spk-level-text">0%</span>
+                    </div>
+                    <div id="spk-bars" class="audio-bars">
+                        <!-- Bars dynamically added -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MIDDLE COLUMN: Camera & Sensors -->
+        <div class="device-container">
+            <div class="card webcam-card">
+                <div class="card-header">
+                    <span class="card-title">📷 ESP32 Camera (MCP Vision)</span>
+                    <button class="btn-small" onclick="manualPhotoTrigger()">📸 Test Snapshot</button>
+                </div>
+
+                <div class="webcam-container">
+                    <video id="webcam" autoplay playsinline muted></video>
+                    <div class="camera-badge">
+                        <span>● LIVE FEED</span>
+                    </div>
+                    <div id="camera-flash" class="camera-flash"></div>
+                </div>
+
+                <div>
+                    <div style="font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; margin-bottom: 8px;">
+                        Latest Snapshots (Sent to VLM)
+                    </div>
+                    <div id="gallery" class="snapshot-gallery">
+                        <div style="font-size: 12px; color: var(--text-dim); padding: 10px;">No snapshots captured yet</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Device Configuration -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">⚙️ Device Parameters</span>
+                </div>
+
+                <div class="config-grid">
+                    <div class="input-group">
+                        <label class="input-label">Device MAC (Device-Id)</label>
+                        <input id="cfg-mac" class="input-field" type="text" value="44:1b:f6:85:13:ec">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Client ID</label>
+                        <input id="cfg-client" class="input-field" type="text" value="elato-web-sim-001">
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">WebSocket URL</label>
+                    <input id="cfg-ws" class="input-field" type="text" value="">
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN: Protocol Inspector -->
+        <div class="console-column">
+            <div class="card console-card">
+                <div class="card-header">
+                    <div class="console-tabs">
+                        <button class="tab-btn active" onclick="switchTab('all')">All Events</button>
+                        <button class="tab-btn" onclick="switchTab('stt')">STT & TTS</button>
+                        <button class="tab-btn" onclick="switchTab('mcp')">MCP Tools</button>
+                        <button class="tab-btn" onclick="switchTab('images')">Images</button>
+                    </div>
+                    <button class="btn-small" onclick="clearLogs()">Clear</button>
+                </div>
+
+                <div id="log-list" class="log-container">
+                    <div class="log-entry">
+                        <span class="log-time">[00:00:00]</span>
+                        <span class="log-tag ws">INFO</span>
+                        <span class="log-msg">Simulator initialized. Ready to connect to Deno backend.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Hidden canvas for webcam snapshots -->
+    <canvas id="snapshot-canvas" width="640" height="480" style="display: none;"></canvas>
+
+    <script>
+        // ---- State ----
+        let ws = null;
+        let sessionId = null;
+        let isConnected = false;
+        let isStreamingAudio = false;
+        let voiceMode = 'ptt'; // 'ptt' or 'continuous'
+        let activeTab = 'all';
+        let uplinkPacketsSent = 0;
+        let uplinkBytesSent = 0;
+
+        // Audio State
+        let audioCtx = null;
+        let micStream = null;
+        let micSource = null;
+        let micProcessor = null;
+        let audioEncoder = null;
+        let audioDecoder = null;
+        let nextPlayTime = 0;
+        let activeAudioSources = [];
+        let pcm16kAccumulator = new Float32Array(0);
+        let frameTimestampMicros = 0;
+
+        // MCP Vision Config
+        let visionCfg = null;
+
+        // Visualizer Bars
+        const micBarsContainer = document.getElementById('mic-bars');
+        const spkBarsContainer = document.getElementById('spk-bars');
+        const NUM_BARS = 24;
+        for (let i = 0; i < NUM_BARS; i++) {
+            const mBar = document.createElement('div');
+            mBar.className = 'audio-bar mic';
+            micBarsContainer.appendChild(mBar);
+
+            const sBar = document.createElement('div');
+            sBar.className = 'audio-bar';
+            spkBarsContainer.appendChild(sBar);
+        }
+
+        // Initialize default WS URL
+        const defaultProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const defaultWsHost = window.location.host || 'localhost:8000';
+        document.getElementById('cfg-ws').value = `${defaultProto}//${defaultWsHost}/xiaozhi/v1/`;
+
+        // ---- Logging ----
+        function log(tag, message, category = 'all') {
+            const list = document.getElementById('log-list');
+            const entry = document.createElement('div');
+            entry.className = `log-entry cat-${category}`;
+            entry.dataset.category = category;
+
+            const timeStr = new Date().toTimeString().slice(0, 8);
+            entry.innerHTML = `
+                <span class="log-time">[${timeStr}]</span>
+                <span class="log-tag ${tag.toLowerCase()}">${tag}</span>
+                <span class="log-msg">${escapeHtml(message)}</span>
+            `;
+            list.appendChild(entry);
+            list.scrollTop = list.scrollHeight;
+
+            if (activeTab !== 'all' && activeTab !== category) {
+                entry.style.display = 'none';
+            }
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function clearLogs() {
+            document.getElementById('log-list').innerHTML = '';
+        }
+
+        function switchTab(tab) {
+            activeTab = tab;
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            document.querySelectorAll('.log-entry').forEach(entry => {
+                if (tab === 'all' || entry.dataset.category === tab) {
+                    entry.style.display = 'flex';
+                } else {
+                    entry.style.display = 'none';
+                }
+            });
+        }
+
+        // ---- Webcam Init ----
+        async function initWebcam() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                });
+                document.getElementById('webcam').srcObject = stream;
+                log('VISION', 'Webcam stream initialized successfully', 'vision');
+            } catch (err) {
+                log('ERROR', 'Webcam access denied or unavailable: ' + err.message, 'vision');
+            }
+        }
+        initWebcam();
+
+        // ---- High-Quality Linear Audio Resampler ----
+        function resampleFloat32(input, fromRate, toRate) {
+            if (fromRate === toRate) return input;
+            const ratio = fromRate / toRate;
+            const outLength = Math.floor(input.length / ratio);
+            const out = new Float32Array(outLength);
+            for (let i = 0; i < outLength; i++) {
+                const sp = i * ratio;
+                const left = Math.floor(sp);
+                const right = Math.min(left + 1, input.length - 1);
+                const frac = sp - left;
+                out[i] = input[left] + (input[right] - input[left]) * frac;
+            }
+            return out;
+        }
+
+        // ---- Audio Pipeline ----
+        async function initAudioSystem() {
+            if (audioCtx) return;
+
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+            await audioCtx.resume();
+
+            // Downlink Decoder (24kHz Opus -> AudioContext)
+            if (typeof AudioDecoder !== 'undefined') {
+                audioDecoder = new AudioDecoder({
+                    output: (audioData) => {
+                        playAudioData(audioData);
+                    },
+                    error: (e) => log('ERROR', 'AudioDecoder error: ' + e.message, 'error')
+                });
+                audioDecoder.configure({
+                    codec: 'opus',
+                    sampleRate: 24000,
+                    numberOfChannels: 1
+                });
+            } else {
+                log('ERROR', 'WebCodecs AudioDecoder not supported in this browser. Please use Chrome/Edge.', 'error');
+            }
+
+            // Start Mic Capture in background once
+            await setupMicCapture();
+        }
+
+        async function setupMicCapture() {
+            if (micStream) return;
+
+            try {
+                micStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+
+                const micCtx = new (window.AudioContext || window.webkitAudioContext)();
+                await micCtx.resume();
+                const actualSampleRate = micCtx.sampleRate;
+                log('AUDIO', `Microphone hardware rate: ${actualSampleRate}Hz (will resample to 16kHz)`, 'audio');
+
+                micSource = micCtx.createMediaStreamSource(micStream);
+
+                // Setup WebCodecs AudioEncoder (16kHz Opus, 60ms frames = 960 samples)
+                if (typeof AudioEncoder !== 'undefined') {
+                    audioEncoder = new AudioEncoder({
+                        output: (chunk) => {
+                            if (isStreamingAudio && ws && ws.readyState === WebSocket.OPEN) {
+                                const buf = new Uint8Array(chunk.byteLength);
+                                chunk.copyTo(buf);
+                                ws.send(buf);
+                                uplinkPacketsSent++;
+                                uplinkBytesSent += buf.byteLength;
+                                document.getElementById('audio-stats').innerText =
+                                    `Uplink: ${uplinkPacketsSent} pkts (${Math.round(uplinkBytesSent / 1024)} KB)`;
+                            }
+                        },
+                        error: (e) => log('ERROR', 'AudioEncoder error: ' + e.message, 'error')
+                    });
+
+                    audioEncoder.configure({
+                        codec: 'opus',
+                        sampleRate: 16000,
+                        numberOfChannels: 1,
+                        bitrate: 16000,
+                        opus: { frameDuration: 60000 } // 60ms
+                    });
+                }
+
+                const FRAME_SIZE_16K = 960; // 60ms @ 16kHz
+                micProcessor = micCtx.createScriptProcessor(2048, 1, 1);
+                micProcessor.onaudioprocess = (e) => {
+                    const rawInput = e.inputBuffer.getChannelData(0);
+                    animateMicLevel(rawInput);
+
+                    if (!audioEncoder || audioEncoder.state !== 'configured') return;
+
+                    // Resample native rate to 16000Hz
+                    const resampled16k = resampleFloat32(rawInput, actualSampleRate, 16000);
+
+                    // Accumulate 16kHz samples
+                    const combined = new Float32Array(pcm16kAccumulator.length + resampled16k.length);
+                    combined.set(pcm16kAccumulator);
+                    combined.set(resampled16k, pcm16kAccumulator.length);
+                    pcm16kAccumulator = combined;
+
+                    // Emit exact 60ms (960 sample) chunks
+                    while (pcm16kAccumulator.length >= FRAME_SIZE_16K) {
+                        const frameChunk = pcm16kAccumulator.slice(0, FRAME_SIZE_16K);
+                        pcm16kAccumulator = pcm16kAccumulator.slice(FRAME_SIZE_16K);
+
+                        try {
+                            const audioData = new AudioData({
+                                format: 'f32-planar',
+                                sampleRate: 16000,
+                                numberOfChannels: 1,
+                                numberOfFrames: FRAME_SIZE_16K,
+                                timestamp: frameTimestampMicros,
+                                data: frameChunk
+                            });
+                            audioEncoder.encode(audioData);
+                            audioData.close();
+                            frameTimestampMicros += 60000; // +60ms
+                        } catch (encErr) {
+                            console.error('AudioData encode error:', encErr);
+                        }
+                    }
+                };
+
+                micSource.connect(micProcessor);
+                micProcessor.connect(micCtx.destination);
+                log('AUDIO', 'Microphone pipeline ready (resampling & encoding active)', 'audio');
+            } catch (err) {
+                log('ERROR', 'Failed to access microphone: ' + err.message, 'error');
+            }
+        }
+
+        function playAudioData(audioData) {
+            if (!audioCtx) return;
+            const numFrames = audioData.numberOfFrames;
+            const buffer = audioCtx.createBuffer(1, numFrames, audioData.sampleRate);
+            const channelData = buffer.getChannelData(0);
+            audioData.copyTo(channelData, { planeIndex: 0 });
+            audioData.close();
+
+            const source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+            if (nextPlayTime < now) {
+                nextPlayTime = now + 0.03; // small prebuffer
+            }
+            source.start(nextPlayTime);
+            nextPlayTime += buffer.duration;
+
+            activeAudioSources.push(source);
+            source.onended = () => {
+                const idx = activeAudioSources.indexOf(source);
+                if (idx !== -1) activeAudioSources.splice(idx, 1);
+            };
+
+            animateSpkLevel(channelData);
+        }
+
+        function stopAllAudio() {
+            for (const s of activeAudioSources) {
+                try { s.stop(); } catch {}
+            }
+            activeAudioSources = [];
+            nextPlayTime = 0;
+        }
+
+        function animateMicLevel(data) {
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+            const rms = Math.sqrt(sum / (data.length || 1));
+            const level = Math.min(100, Math.round(rms * 400));
+            document.getElementById('mic-level-text').innerText = `${level}%`;
+
+            const bars = micBarsContainer.children;
+            for (let i = 0; i < bars.length; i++) {
+                const threshold = (i / bars.length) * 100;
+                const h = level > threshold ? Math.min(32, Math.max(4, (level - threshold) * 2)) : 3;
+                bars[i].style.height = `${h}px`;
+            }
+        }
+
+        function animateSpkLevel(data) {
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+            const rms = Math.sqrt(sum / (data.length || 1));
+            const level = Math.min(100, Math.round(rms * 400));
+            document.getElementById('spk-level-text').innerText = `${level}%`;
+
+            const bars = spkBarsContainer.children;
+            for (let i = 0; i < bars.length; i++) {
+                const threshold = (i / bars.length) * 100;
+                const h = level > threshold ? Math.min(32, Math.max(4, (level - threshold) * 2)) : 3;
+                bars[i].style.height = `${h}px`;
+            }
+        }
+
+        // ---- WebSocket Protocol ----
+        async function connectWebSocket() {
+            await initAudioSystem();
+
+            const rawWsUrl = document.getElementById('cfg-ws').value.trim();
+            const deviceId = document.getElementById('cfg-mac').value.trim();
+            const u = new URL(rawWsUrl);
+            u.searchParams.set('device_id', deviceId);
+
+            log('WS', `Connecting to ${u.toString()}...`, 'all');
+            updateConnState('connecting', 'Connecting...');
+
+            ws = new WebSocket(u.toString());
+            ws.binaryType = 'arraybuffer';
+
+            ws.onopen = () => {
+                isConnected = true;
+                uplinkPacketsSent = 0;
+                uplinkBytesSent = 0;
+                updateConnState('connected', 'Connected');
+                document.getElementById('btn-connect').innerHTML = '<span>🔌 Disconnect</span>';
+                document.getElementById('btn-connect').classList.remove('primary');
+                document.getElementById('btn-connect').classList.add('danger');
+
+                // Send XIAOZHI Hello
+                const helloMsg = {
+                    type: 'hello',
+                    version: 1,
+                    transport: 'websocket',
+                    features: { mcp: true },
+                    audio_params: {
+                        format: 'opus',
+                        sample_rate: 16000,
+                        channels: 1,
+                        frame_duration: 60
+                    }
+                };
+                ws.send(JSON.stringify(helloMsg));
+                log('HELLO', '→ Sent hello (features.mcp=true, opus 16kHz)', 'all');
+
+                if (voiceMode === 'continuous') {
+                    startStreamingAudio();
+                }
+            };
+
+            ws.onmessage = async (event) => {
+                if (typeof event.data === 'string') {
+                    handleJsonMessage(JSON.parse(event.data));
+                } else {
+                    // Binary Opus Audio Frame (Downlink)
+                    handleBinaryAudio(new Uint8Array(event.data));
+                }
+            };
+
+            ws.onclose = (event) => {
+                isConnected = false;
+                sessionId = null;
+                isStreamingAudio = false;
+                stopAllAudio();
+                updateConnState('disconnected', 'Disconnected');
+                document.getElementById('btn-connect').innerHTML = '<span>🔌 Connect WS</span>';
+                document.getElementById('btn-connect').classList.add('primary');
+                document.getElementById('btn-connect').classList.remove('danger');
+                setAvatarEmotion('neutral');
+                setScreenState('IDLE');
+                log('WS', `Disconnected: code=${event.code} reason=${event.reason || 'None'}`, 'all');
+            };
+
+            ws.onerror = (err) => {
+                log('ERROR', 'WebSocket connection failed (check MAC registration)', 'error');
+            };
+        }
+
+        function disconnectWebSocket() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function updateConnState(state, text) {
+            const badge = document.getElementById('conn-badge');
+            const label = document.getElementById('conn-text');
+            badge.className = `connection-status ${state}`;
+            label.innerText = text;
+        }
+
+        // Handle JSON text frames
+        function handleJsonMessage(msg) {
+            switch (msg.type) {
+                case 'hello':
+                    sessionId = msg.session_id;
+                    log('HELLO', `← Received server hello (session_id: ${sessionId})`, 'all');
+                    setScreenState('READY');
+                    document.getElementById('screen-subtitles').innerText = 'Online. Ready for voice or camera interaction.';
+                    break;
+
+                case 'stt':
+                    log('STT', `🗣️ User: "${msg.text}"`, 'stt');
+                    document.getElementById('screen-subtitles').innerText = `"${msg.text}"`;
+                    setScreenState('THINKING');
+                    setAvatarEmotion('thinking');
+                    break;
+
+                case 'llm':
+                    if (msg.emotion) {
+                        log('EMOTION', `🎭 Emotion: ${msg.emotion}`, 'stt');
+                        setAvatarEmotion(msg.emotion);
+                    }
+                    break;
+
+                case 'tts':
+                    if (msg.state === 'start') {
+                        setScreenState('SPEAKING');
+                        setAvatarEmotion('speaking');
+                        log('TTS', '← tts.start (Assistant speaking)', 'stt');
+                    } else if (msg.state === 'sentence_start') {
+                        log('TTS', `💬 Assistant: "${msg.text}"`, 'stt');
+                        document.getElementById('screen-subtitles').innerText = msg.text;
+                    } else if (msg.state === 'stop') {
+                        log('TTS', '← tts.stop', 'stt');
+                        setScreenState('IDLE');
+                        setAvatarEmotion('neutral');
+                    }
+                    break;
+
+                case 'mcp':
+                    handleMcpMessage(msg.payload);
+                    break;
+
+                case 'custom':
+                    handleCustomMessage(msg.payload);
+                    break;
+
+                case 'alert':
+                    log('ALERT', `⚠️ ${msg.status}: ${msg.message}`, 'error');
+                    break;
+
+                default:
+                    log('MSG', `← ${JSON.stringify(msg)}`, 'all');
+            }
+        }
+
+        // Handle MCP Tool Calls (Vision / Device Control)
+        async function handleMcpMessage(payload) {
+            if (!payload) return;
+            const { id, method, params } = payload;
+
+            if (method === 'initialize') {
+                const vision = params?.capabilities?.vision;
+                if (vision?.url) {
+                    visionCfg = { url: vision.url, token: vision.token || '' };
+                    log('MCP', `Initialized capabilities: vision URL=${vision.url}`, 'mcp');
+                }
+                ws.send(JSON.stringify({
+                    type: 'mcp',
+                    payload: {
+                        jsonrpc: '2.0',
+                        id,
+                        result: {
+                            protocolVersion: '2024-11-05',
+                            capabilities: { tools: {} },
+                            serverInfo: { name: 'elato-web-sim', version: '0.1' }
+                        }
+                    }
+                }));
+            } else if (method === 'tools/call') {
+                const toolName = params?.name;
+                const toolArgs = params?.arguments || {};
+                log('MCP', `🛠️ Tool call: ${toolName} args=${JSON.stringify(toolArgs)}`, 'mcp');
+
+                if (toolName === 'self.camera.take_photo') {
+                    const resultText = await captureAndUploadPhoto(toolArgs.question || 'What do you see?');
+                    ws.send(JSON.stringify({
+                        type: 'mcp',
+                        payload: {
+                            jsonrpc: '2.0',
+                            id,
+                            result: {
+                                content: [{ type: 'text', text: resultText }],
+                                isError: false
+                            }
+                        }
+                    }));
+                    log('VISION', `📸 Snapshot uploaded & vision result returned to LLM`, 'vision');
+                } else if (toolName === 'self.get_device_status') {
+                    const statusResult = JSON.stringify({
+                        battery: { level: 95, charging: true },
+                        audio_speaker: { volume: 70 }
+                    });
+                    ws.send(JSON.stringify({
+                        type: 'mcp',
+                        payload: {
+                            jsonrpc: '2.0',
+                            id,
+                            result: { content: [{ type: 'text', text: statusResult }], isError: false }
+                        }
+                    }));
+                } else if (toolName === 'self.audio_speaker.set_volume') {
+                    const vol = toolArgs.volume ?? 70;
+                    document.getElementById('screen-vol').innerText = `🔊 ${vol}`;
+                    log('MCP', `Volume set to ${vol}`, 'mcp');
+                    ws.send(JSON.stringify({
+                        type: 'mcp',
+                        payload: {
+                            jsonrpc: '2.0',
+                            id,
+                            result: { content: [{ type: 'text', text: JSON.stringify({ success: true }) }], isError: false }
+                        }
+                    }));
+                } else {
+                    ws.send(JSON.stringify({
+                        type: 'mcp',
+                        payload: {
+                            jsonrpc: '2.0',
+                            id,
+                            result: { content: [{ type: 'text', text: JSON.stringify({ success: true }) }], isError: false }
+                        }
+                    }));
+                }
+            }
+        }
+
+        // Handle Custom pushed actions (AI Image Generation)
+        function handleCustomMessage(payload) {
+            if (payload?.action === 'show_image' && payload.data) {
+                const imgSrc = `data:image/jpeg;base64,${payload.data}`;
+                log('IMAGE', `🖼️ AI Image received (${payload.width || 320}x${payload.height || 240})`, 'images');
+
+                document.getElementById('overlay-img').src = imgSrc;
+                document.getElementById('image-overlay').classList.add('active');
+                addGalleryThumb(imgSrc, 'AI Generated');
+            }
+        }
+
+        function closeImageOverlay() {
+            document.getElementById('image-overlay').classList.remove('active');
+        }
+
+        // Camera Snapshot & Upload
+        async function captureAndUploadPhoto(question) {
+            triggerCameraFlash();
+
+            const video = document.getElementById('webcam');
+            const canvas = document.getElementById('snapshot-canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, 640, 480);
+
+            return new Promise((resolve) => {
+                canvas.toBlob(async (blob) => {
+                    if (!blob) {
+                        resolve(JSON.stringify({ success: false, result: 'Failed to capture frame' }));
+                        return;
+                    }
+
+                    const thumbUrl = URL.createObjectURL(blob);
+                    addGalleryThumb(thumbUrl, 'Webcam Snap');
+
+                    const targetUrl = visionCfg?.url || '/xiaozhi/vision/explain';
+                    const targetToken = visionCfg?.token || 'elato-vision';
+                    const deviceId = document.getElementById('cfg-mac').value.trim();
+
+                    const fd = new FormData();
+                    fd.set('question', question);
+                    fd.set('file', blob, 'camera.jpg');
+
+                    try {
+                        const resp = await fetch(targetUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Device-Id': deviceId,
+                                'Authorization': `Bearer ${targetToken}`
+                            },
+                            body: fd
+                        });
+                        const text = await resp.text();
+                        resolve(text);
+                    } catch (e) {
+                        resolve(JSON.stringify({ success: false, result: 'Vision upload failed: ' + e.message }));
+                    }
+                }, 'image/jpeg', 0.85);
+            });
+        }
+
+        async function manualPhotoTrigger() {
+            log('VISION', 'Capturing test snapshot from webcam...', 'vision');
+            const rawResp = await captureAndUploadPhoto('Describe what is in front of the camera');
+            log('VISION', `VLM Response: ${rawResp}`, 'vision');
+            try {
+                const parsed = JSON.parse(rawResp);
+                if (parsed.result) {
+                    document.getElementById('screen-subtitles').innerText = `👁️ ${parsed.result}`;
+                }
+            } catch {}
+        }
+
+        function triggerCameraFlash() {
+            const flash = document.getElementById('camera-flash');
+            flash.classList.add('flash');
+            setTimeout(() => flash.classList.remove('flash'), 150);
+        }
+
+        function addGalleryThumb(src, title) {
+            const gallery = document.getElementById('gallery');
+            if (gallery.children[0]?.innerText?.includes('No snapshots')) {
+                gallery.innerHTML = '';
+            }
+            const thumb = document.createElement('div');
+            thumb.className = 'snapshot-thumb';
+            thumb.title = title;
+            thumb.innerHTML = `<img src="${src}">`;
+            thumb.onclick = () => {
+                document.getElementById('overlay-img').src = src;
+                document.getElementById('image-overlay').classList.add('active');
+            };
+            gallery.prepend(thumb);
+        }
+
+        // Binary Downlink Opus Decode
+        function handleBinaryAudio(opusBytes) {
+            if (!audioDecoder || audioDecoder.state !== 'configured') return;
+
+            try {
+                const chunk = new EncodedAudioChunk({
+                    type: 'key',
+                    timestamp: performance.now() * 1000,
+                    data: opusBytes
+                });
+                audioDecoder.decode(chunk);
+            } catch (err) {
+                console.error('Audio decode chunk error:', err);
+            }
+        }
+
+        // Avatar Emotion Helpers
+        function setAvatarEmotion(emotion) {
+            const avatar = document.getElementById('avatar');
+            avatar.className = 'avatar-face ' + (emotion || 'neutral');
+        }
+
+        function setScreenState(state) {
+            const el = document.getElementById('screen-state');
+            el.className = 'state-badge ' + state.toLowerCase();
+            el.innerText = state;
+        }
+
+        // ---- Voice Mode & Streaming Controls ----
+        function setVoiceMode(mode) {
+            voiceMode = mode;
+            document.getElementById('mode-ptt').classList.toggle('active', mode === 'ptt');
+            document.getElementById('mode-continuous').classList.toggle('active', mode === 'continuous');
+
+            if (mode === 'continuous') {
+                document.getElementById('talk-label').innerText = 'Streaming (Live)';
+                document.getElementById('btn-talk').classList.add('active');
+                if (isConnected) startStreamingAudio();
+            } else {
+                document.getElementById('talk-label').innerText = 'Push to Talk';
+                document.getElementById('btn-talk').classList.remove('active');
+                stopStreamingAudio();
+            }
+        }
+
+        function startStreamingAudio() {
+            if (!isConnected) return;
+            isStreamingAudio = true;
+            document.getElementById('btn-talk').classList.add('active');
+            setScreenState('LISTENING');
+
+            if (ws && sessionId) {
+                ws.send(JSON.stringify({
+                    type: 'listen',
+                    session_id: sessionId,
+                    state: 'start',
+                    mode: 'auto'
+                }));
+            }
+            log('AUDIO', '→ Speech audio streaming active', 'audio');
+        }
+
+        function stopStreamingAudio() {
+            if (!isStreamingAudio) return;
+            isStreamingAudio = false;
+            document.getElementById('btn-talk').classList.remove('active');
+
+            if (ws && sessionId) {
+                ws.send(JSON.stringify({
+                    type: 'listen',
+                    session_id: sessionId,
+                    state: 'stop'
+                }));
+            }
+            log('AUDIO', '→ Speech audio streaming stopped (end of turn)', 'audio');
+        }
+
+        // ---- UI Event Listeners ----
+        document.getElementById('btn-connect').addEventListener('click', () => {
+            if (isConnected) {
+                disconnectWebSocket();
+            } else {
+                connectWebSocket();
+            }
+        });
+
+        // Push-to-Talk Button
+        const talkBtn = document.getElementById('btn-talk');
+        function handlePttStart() {
+            if (voiceMode === 'ptt') {
+                startStreamingAudio();
+                document.getElementById('talk-label').innerText = 'Listening...';
+            } else {
+                // In continuous mode, clicking toggles mute
+                if (isStreamingAudio) {
+                    stopStreamingAudio();
+                    document.getElementById('talk-label').innerText = 'Muted (Click to un-mute)';
+                } else {
+                    startStreamingAudio();
+                    document.getElementById('talk-label').innerText = 'Streaming (Live)';
+                }
+            }
+        }
+
+        function handlePttStop() {
+            if (voiceMode === 'ptt') {
+                stopStreamingAudio();
+                document.getElementById('talk-label').innerText = 'Push to Talk';
+            }
+        }
+
+        talkBtn.addEventListener('mousedown', handlePttStart);
+        window.addEventListener('mouseup', handlePttStop);
+        talkBtn.addEventListener('touchstart', (e) => { e.preventDefault(); handlePttStart(); });
+        window.addEventListener('touchend', handlePttStop);
+
+        // Keyboard Spacebar PTT
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && voiceMode === 'ptt' && !isStreamingAudio && e.target.tagName !== 'INPUT') {
+                e.preventDefault();
+                handlePttStart();
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'Space' && voiceMode === 'ptt' && isStreamingAudio && e.target.tagName !== 'INPUT') {
+                e.preventDefault();
+                handlePttStop();
+            }
+        });
+
+        // Interrupt Button
+        document.getElementById('btn-interrupt').addEventListener('click', () => {
+            if (ws && sessionId) {
+                ws.send(JSON.stringify({
+                    type: 'abort',
+                    session_id: sessionId,
+                    reason: 'user_interrupt'
+                }));
+                stopAllAudio();
+                setScreenState('IDLE');
+                setAvatarEmotion('neutral');
+                log('INTERRUPT', '→ Sent abort (Interrupted assistant turn)', 'all');
+            }
+        });
+    </script>
+</body>
+</html>

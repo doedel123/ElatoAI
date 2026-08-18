@@ -189,6 +189,29 @@ async function handlePersonalityImage(req: Request, pathname: string) {
     }
 }
 
+async function handleSimulator(req: Request) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+        return jsonResponse(405, { error: 'Method not allowed' });
+    }
+
+    try {
+        const filePath = new URL('./simulator.html', import.meta.url);
+        const data = req.method === 'HEAD' ? null : await Deno.readFile(filePath);
+        if (req.method === 'HEAD') {
+            await Deno.stat(filePath);
+        }
+        return new Response(data, {
+            status: 200,
+            headers: {
+                'content-type': 'text/html; charset=utf-8',
+                'cache-control': 'no-cache',
+            },
+        });
+    } catch (e: any) {
+        return jsonResponse(404, { error: 'Simulator page not found: ' + (e?.message ?? e) });
+    }
+}
+
 async function getUserByMacAddress(macAddress: string): Promise<IUser | null> {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -841,6 +864,14 @@ async function handleRequest(req: Request) {
 
     if (
         (req.method === 'GET' || req.method === 'HEAD') &&
+        (url.pathname === '/sim' || url.pathname === '/simulator' ||
+            url.pathname === '/xiaozhi/sim' || url.pathname === '/xiaozhi/simulator')
+    ) {
+        return await handleSimulator(req);
+    }
+
+    if (
+        (req.method === 'GET' || req.method === 'HEAD') &&
         (url.pathname === '/' || url.pathname === '/health' ||
             url.pathname === '/healthz')
     ) {
@@ -849,7 +880,7 @@ async function handleRequest(req: Request) {
 
     return jsonResponse(404, {
         ok: false,
-        error: 'Not found. Use /health for HTTP checks or WebSocket upgrade for realtime.',
+        error: 'Not found. Use /sim for web simulator, /health for HTTP checks, or WebSocket upgrade for realtime.',
     });
 }
 

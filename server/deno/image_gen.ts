@@ -5,7 +5,7 @@ import { geminiApiKey, openaiApiKey } from "./utils.ts";
 // gpt-image-1 only generates >=1024px (1024x1024, 1536x1024, 1024x1536).
 // We generate at 1536x1024 (3:2) then downscale to the device screen, which
 // keeps the WS payload tiny (~10KB) and lets the firmware just decode + blit.
-const IMAGE_MODEL = Deno.env.get("IMAGE_MODEL") ?? "gpt-image-1";
+const IMAGE_MODEL = Deno.env.get("IMAGE_MODEL") ?? "gpt-image-2";
 const IMAGE_SIZE = Deno.env.get("IMAGE_SIZE") ?? "1536x1024";
 const IMAGE_QUALITY = Deno.env.get("IMAGE_QUALITY") ?? "low";
 const IMAGE_COMPRESSION = Number(Deno.env.get("IMAGE_COMPRESSION") ?? "60");

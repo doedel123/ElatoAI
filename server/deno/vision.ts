@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { openaiApiKey } from "./utils.ts";
 
-const VISION_MODEL = Deno.env.get("VISION_MODEL") ?? "gpt-4.1-mini";
+const VISION_MODEL = Deno.env.get("VISION_MODEL") ?? "gpt-4o-mini";
 
 const SYSTEM_PROMPT =
     "You are the eyes of a small talking toy with a camera. Describe what you " +
