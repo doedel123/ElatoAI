@@ -12,7 +12,10 @@ import {
 import { createOpusPacketizer, defaultGeminiVoice, extractSentences, geminiApiKey, isDev } from '../utils.ts';
 import { XIAOZHI_DEVICE_TOOL_BY_NAME, XIAOZHI_DEVICE_TOOLS } from '../device_tools.ts';
 import { classifyEmotion, heuristicEmotion } from '../emotion.ts';
-import { addConversation } from '../supabase.ts';
+import { addConversation, createFirstMessage, createSystemPrompt, getChatHistory } from '../supabase.ts';
+import { listPersonalities, resolvePersonality, setUserPersonality } from '../concierge.ts';
+import { rememberFact, saveSessionTranscript, searchMemories } from '../memory.ts';
+import type { TranscriptTurn } from '../memory.ts';
 
 export const connectToGemini = async ({
     ws,
@@ -27,6 +30,8 @@ export const connectToGemini = async ({
     callDeviceTool,
     showImage,
     stylizePhoto,
+    capturePhoto,
+    conciergeMode,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
     const voiceName = user.personality?.oai_voice ?? defaultGeminiVoice;
@@ -62,7 +67,11 @@ export const connectToGemini = async ({
 
     // Initialize Google GenAI
     const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-    const model = 'gemini-2.5-flash-native-audio-preview-09-2025';
+    // Concierge needs google_search grounding, which requires gemini-3.1+.
+    // The classic personality path keeps the proven native-audio model.
+    const model = Deno.env.get('GEMINI_LIVE_MODEL') ??
+        (conciergeMode ? 'gemini-3.1-flash-live-preview' : 'gemini-2.5-flash-native-audio-preview-09-2025');
+    console.log(`Gemini Live model: ${model}${conciergeMode ? ' (concierge)' : ''}`);
 
     // Build the tool list: camera (take_photo) + curated device-control tools.
     const functionDeclarations: any[] = [];
@@ -124,36 +133,153 @@ export const connectToGemini = async ({
             },
         });
     }
+    if (conciergeMode) {
+        functionDeclarations.push({
+            name: 'list_personalities',
+            description:
+                'List the available characters/personalities the user can switch this device into. Read the titles and one-line descriptions aloud.',
+            parameters: { type: Type.OBJECT, properties: {} },
+        }, {
+            name: 'switch_personality',
+            description:
+                'Switch this device into one of the available personalities. Announce the switch in one short sentence before calling this; the new character then takes over the conversation.',
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    name: { type: Type.STRING, description: 'The key or title of the personality, as the user said it.' },
+                },
+                required: ['name'],
+            },
+        }, {
+            name: 'remember',
+            description:
+                'Store one important fact about the user in long-term memory (preferences, names, events). Use sparingly for things worth keeping across sessions.',
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    fact: { type: Type.STRING, description: 'The fact to remember, phrased as a complete sentence.' },
+                },
+                required: ['fact'],
+            },
+        }, {
+            name: 'recall',
+            description:
+                'Search long-term memory for facts about the user that are not already in the memory block of your instructions.',
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    query: { type: Type.STRING, description: 'What to look for.' },
+                },
+                required: ['query'],
+            },
+        });
+    }
 
-    const config: LiveConnectConfig = {
-        responseModalities: [Modality.AUDIO],
-        systemInstruction: systemPrompt + storyImageNudge,
-        speechConfig: {
-            voiceConfig: {
-                prebuiltVoiceConfig: {
-                    voiceName: voiceName,
+    const buildConfig = (prompt: string, voice: string): LiveConnectConfig => {
+        const tools: any[] = [];
+        // google_search grounding (concierge only; needs gemini-3.1+).
+        if (conciergeMode) tools.push({ googleSearch: {} });
+        if (functionDeclarations.length) tools.push({ functionDeclarations });
+        return {
+            responseModalities: [Modality.AUDIO],
+            systemInstruction: prompt + storyImageNudge,
+            speechConfig: {
+                voiceConfig: {
+                    prebuiltVoiceConfig: {
+                        voiceName: voice,
+                    },
                 },
             },
-        },
-        realtimeInputConfig: {
-            automaticActivityDetection: {
-                disabled: false, // Keep VAD enabled
-                endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
-                silenceDurationMs: 100,
+            realtimeInputConfig: {
+                automaticActivityDetection: {
+                    disabled: false, // Keep VAD enabled
+                    endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+                    silenceDurationMs: 100,
+                },
             },
-        },
-        outputAudioTranscription: {},
-        inputAudioTranscription: {},
-        ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
+            outputAudioTranscription: {},
+            inputAudioTranscription: {},
+            ...(tools.length ? { tools } : {}),
+        };
     };
+    const config: LiveConnectConfig = buildConfig(systemPrompt, voiceName);
+
+    // Session transcript for Memory Bank ingestion (concierge only).
+    const transcript: TranscriptTurn[] = [];
+    let lastMemorySaveLength = 0;
+    const maybeSaveMemories = (force = false) => {
+        if (!conciergeMode) return;
+        if (!force && transcript.length - lastMemorySaveLength < 20) return;
+        lastMemorySaveLength = transcript.length;
+        void saveSessionTranscript(user.user_id, [...transcript]);
+    };
+
+    // Set by switch_personality; consumed after the tool response is sent so
+    // the model's announcement audio is not cut off mid-word.
+    let pendingSwitch: IPersonality | null = null;
 
     async function handleFunctionCall(fc: { id?: string; name?: string; args?: any }) {
         let response: Record<string, unknown>;
         const deviceTool = XIAOZHI_DEVICE_TOOL_BY_NAME[fc.name ?? ''];
-        if (fc.name === 'take_photo' && requestPhoto) {
+        if (fc.name === 'take_photo' && capturePhoto) {
+            // Multimodal path: push the raw JPEG straight into the Live session
+            // so the model looks at the picture itself (no separate VLM).
+            try {
+                const jpeg = await capturePhoto();
+                geminiSession?.sendRealtimeInput({
+                    video: { data: Buffer.from(jpeg).toString('base64'), mimeType: 'image/jpeg' },
+                });
+                console.log(`Gemini: pushed camera JPEG into session (${jpeg.length}B)`);
+                response = {
+                    success: true,
+                    result: 'The photo has been attached to the conversation. Look at it and answer directly.',
+                };
+            } catch (e: unknown) {
+                response = { success: false, error: (e as Error).message };
+            }
+        } else if (fc.name === 'take_photo' && requestPhoto) {
             try {
                 const description = await requestPhoto(fc.args?.question ?? 'What do you see?');
                 response = { success: true, description };
+            } catch (e: unknown) {
+                response = { success: false, error: (e as Error).message };
+            }
+        } else if (fc.name === 'list_personalities' && conciergeMode) {
+            try {
+                const items = await listPersonalities(supabase, user.user_id);
+                response = {
+                    success: true,
+                    personalities: items.map((p) => ({
+                        title: p.title,
+                        description: p.short_description || p.subtitle || '',
+                    })),
+                };
+            } catch (e: unknown) {
+                response = { success: false, error: (e as Error).message };
+            }
+        } else if (fc.name === 'switch_personality' && conciergeMode) {
+            try {
+                const target = await resolvePersonality(supabase, user.user_id, String(fc.args?.name ?? ''));
+                if (!target) {
+                    response = {
+                        success: false,
+                        error: 'No personality with that name. Call list_personalities and offer the available ones.',
+                    };
+                } else {
+                    await setUserPersonality(supabase, user.user_id, target.personality_id);
+                    pendingSwitch = target;
+                    response = { success: true, result: `Switching to ${target.title} now.` };
+                }
+            } catch (e: unknown) {
+                response = { success: false, error: (e as Error).message };
+            }
+        } else if (fc.name === 'remember' && conciergeMode) {
+            void rememberFact(user.user_id, String(fc.args?.fact ?? ''));
+            response = { success: true, result: 'Stored.' };
+        } else if (fc.name === 'recall' && conciergeMode) {
+            try {
+                const facts = await searchMemories(user.user_id, String(fc.args?.query ?? ''));
+                response = { success: true, facts };
             } catch (e: unknown) {
                 response = { success: false, error: (e as Error).message };
             }
@@ -180,6 +306,16 @@ export const connectToGemini = async ({
         geminiSession?.sendToolResponse({
             functionResponses: [{ id: fc.id, name: fc.name, response }],
         });
+        if (pendingSwitch) {
+            const target = pendingSwitch;
+            pendingSwitch = null;
+            // Give the model a moment to voice its announcement, then swap.
+            setTimeout(() => {
+                restartWithPersonality(target).catch((e) =>
+                    console.error('Personality switch failed:', e?.message ?? e)
+                );
+            }, 2500);
+        }
     }
 
     // Response queue for handling Google's callback-based responses
@@ -300,6 +436,14 @@ export const connectToGemini = async ({
                     msg: 'RESPONSE.COMPLETE',
                 }));
 
+                if (inputTranscriptionText.trim()) {
+                    transcript.push({ role: 'user', content: inputTranscriptionText.trim() });
+                }
+                if (outputTranscriptionText.trim()) {
+                    transcript.push({ role: 'assistant', content: outputTranscriptionText.trim() });
+                }
+                maybeSaveMemories();
+
                 // Add user transcription to supabase
                 await addConversation(
                     supabase,
@@ -321,9 +465,8 @@ export const connectToGemini = async ({
         }
     }
 
-    // Connect to Google Gemini Live
-    try {
-        geminiSession = await ai.live.connect({
+    async function startSession(sessionConfig: LiveConnectConfig, greeting: string) {
+        const session = await ai.live.connect({
             model: model,
             callbacks: {
                 onopen: function () {
@@ -345,16 +488,39 @@ export const connectToGemini = async ({
                     console.log('Gemini session closed:', e.reason);
                 },
             },
-            config: config,
+            config: sessionConfig,
         });
-
-        console.log('Connected to Gemini successfully!');
+        const previous = geminiSession;
+        geminiSession = session;
+        try {
+            previous?.close();
+        } catch { /* already closed */ }
         // Send first message if available
-        const inputTurns = [{
-            role: 'user',
-            parts: [{ text: firstMessage }],
-        }];
-        geminiSession?.sendClientContent({ turns: inputTurns });
+        geminiSession?.sendClientContent({
+            turns: [{ role: 'user', parts: [{ text: greeting }] }],
+        });
+    }
+
+    /**
+     * In-place personality switch (concierge): persist happened in the tool
+     * handler; here we rebuild prompt+voice for the chosen personality and
+     * swap the Live session under the still-open device connection.
+     */
+    async function restartWithPersonality(target: IPersonality) {
+        console.log(`Concierge: switching personality -> ${target.key}`);
+        maybeSaveMemories(true);
+        payload.user.personality = target;
+        const chatHistory = await getChatHistory(supabase, user.user_id, target.key ?? null, false);
+        const prompt = createSystemPrompt(chatHistory, payload);
+        const greeting = createFirstMessage(payload);
+        const voice = target.oai_voice ?? defaultGeminiVoice;
+        await startSession(buildConfig(prompt, voice), greeting);
+    }
+
+    // Connect to Google Gemini Live
+    try {
+        await startSession(config, firstMessage);
+        console.log('Connected to Gemini successfully!');
         processGeminiTurns();
     } catch (e: unknown) {
         console.log(`Error connecting to Gemini: ${e}`);
@@ -392,6 +558,7 @@ export const connectToGemini = async ({
 
     ws.on('close', async (code: number, reason: string) => {
         console.log(`WebSocket closed with code ${code}, reason: ${reason}`);
+        maybeSaveMemories(true);
         await closeHandler();
         opus.close();
         geminiSession?.close();

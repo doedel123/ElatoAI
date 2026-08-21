@@ -15,6 +15,8 @@ import {
 } from './supabase.ts';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isDev } from './utils.ts';
+import { createConciergePrompt } from './concierge.ts';
+import { loadMemoryContext } from './memory.ts';
 import { connectToOpenAI } from './models/openai.ts';
 import { connectToGemini } from './models/gemini.ts';
 import { connectToElevenLabs } from './models/elevenlabs.ts';
@@ -386,6 +388,10 @@ async function handleConnection(
         callDeviceTool?: (name: string, args: Record<string, unknown>) => Promise<string>;
         showImage?: (description: string) => void;
         stylizePhoto?: (instruction: string) => Promise<string>;
+        capturePhoto?: () => Promise<Uint8Array>;
+        // XIAOZHI entry point: start into the concierge agent instead of the
+        // DB-assigned personality (kill switch: CONCIERGE_MODE=off).
+        concierge?: boolean;
     } = {},
 ) {
     const { user, supabase } = payload;
@@ -400,18 +406,34 @@ async function handleConnection(
         });
     }
 
-    const chatHistory = await getChatHistory(
-        supabase,
-        user.user_id,
-        user.personality?.key ?? null,
-        false,
-    );
-    const firstMessage = createFirstMessage(payload);
-    const systemPrompt = createSystemPrompt(chatHistory, payload);
+    const conciergeMode = opts.concierge === true;
 
-    const provider = user.personality?.provider ?? 'openai';
-    if (!user.personality?.provider) {
-        console.warn('Personality has no provider configured; falling back to openai');
+    let firstMessage: string;
+    let systemPrompt: string;
+    let provider: string;
+    if (conciergeMode) {
+        // Concierge entry: general Gemini Live agent with Memory Bank context
+        // instead of the DB personality. Chat history is replaced by memory.
+        const memoryContext = await loadMemoryContext(user.user_id);
+        systemPrompt = createConciergePrompt(payload) +
+            (memoryContext ? `\n\n${memoryContext}` : '');
+        firstMessage =
+            'Greet the user warmly in one short sentence and ask what you can do for them.';
+        provider = 'gemini';
+    } else {
+        const chatHistory = await getChatHistory(
+            supabase,
+            user.user_id,
+            user.personality?.key ?? null,
+            false,
+        );
+        firstMessage = createFirstMessage(payload);
+        systemPrompt = createSystemPrompt(chatHistory, payload);
+
+        provider = user.personality?.provider ?? 'openai';
+        if (!user.personality?.provider) {
+            console.warn('Personality has no provider configured; falling back to openai');
+        }
     }
     const personalityImageBase64 = await getPersonalityImageBase64(user.personality);
 
@@ -452,6 +474,8 @@ async function handleConnection(
         callDeviceTool: opts.callDeviceTool,
         showImage: opts.showImage,
         stylizePhoto: opts.stylizePhoto,
+        capturePhoto: opts.capturePhoto,
+        conciergeMode,
     };
 
     switch (provider) {
@@ -595,8 +619,21 @@ async function handleXiaozhiWebSocket(req: Request) {
         }, {
             sendAuthMessage: false,
             emitTextEvents: true,
+            concierge: (Deno.env.get('CONCIERGE_MODE') ?? 'on') !== 'off',
             requestPhoto: (question) => ws.requestPhoto(question),
             callDeviceTool: (name, callArgs) => ws.callDeviceTool(name, callArgs),
+            // Raw JPEG for the multimodal path: trigger the camera, grab the
+            // upload at the vision endpoint, hand the bytes to the provider.
+            capturePhoto: async () => {
+                const photoPromise = awaitDevicePhoto(deviceMac);
+                const trigger = ws.callDeviceTool('self.camera.take_photo', {
+                    question: 'capture for realtime session',
+                });
+                return await Promise.race([
+                    photoPromise,
+                    trigger.then(() => photoPromise),
+                ]);
+            },
             // Photo -> AI-restyled picture: trigger the camera, grab the upload
             // at the vision endpoint, stylize via Gemini in the background, and
             // push the result to the screen.

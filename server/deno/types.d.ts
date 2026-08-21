@@ -241,6 +241,13 @@ declare global {
         // tool. It asks the device for a photo via MCP and returns a textual
         // description from a vision model — decoupled from the audio session.
         requestPhoto?: (question: string) => Promise<string>;
+        // Raw-JPEG variant of requestPhoto: triggers the camera and resolves
+        // with the uploaded bytes. Multimodal providers (Gemini Live) push the
+        // image straight into the audio session instead of describing it.
+        capturePhoto?: () => Promise<Uint8Array>;
+        // Concierge mode (XIAOZHI entry): Gemini-only session with memory,
+        // google_search grounding and personality list/switch tools.
+        conciergeMode?: boolean;
         // When present (XIAOZHI with MCP), providers register the curated
         // device-control tools (volume, brightness, theme, status) that route
         // to the device via MCP tools/call.
