@@ -35,9 +35,16 @@ export const connectToGemini = async ({
 }: ProviderArgs) => {
     const { user, supabase } = payload;
     const voiceName = user.personality?.oai_voice ?? defaultGeminiVoice;
-    const storyImageNudge = showImage && user.personality?.is_story
-        ? '\n\nYou can show pictures on the child\'s screen. Whenever you introduce or move to a new scene, call the show_image tool with a vivid visual description of that scene, then keep narrating.'
-        : '';
+    // Computed per session (not once at connect): after a concierge
+    // personality switch the active personality changes, and the nudge must
+    // follow it — otherwise story personas never learn they have a screen.
+    const imageNudge = () => {
+        if (!showImage) return '';
+        if (payload.user.personality?.is_story) {
+            return '\n\nYou can show pictures on the child\'s screen. Whenever you introduce or move to a new scene, call the show_image tool with a vivid visual description of that scene, then keep narrating.';
+        }
+        return '\n\nYou can show pictures on the device\'s screen: when the user asks to see something, call the show_image tool with a vivid visual description instead of only describing it in words.';
+    };
 
     const opus = (opusFactory ?? createOpusPacketizer)((packet) => ws.send(packet));
 
@@ -182,7 +189,7 @@ export const connectToGemini = async ({
         if (functionDeclarations.length) tools.push({ functionDeclarations });
         return {
             responseModalities: [Modality.AUDIO],
-            systemInstruction: prompt + storyImageNudge,
+            systemInstruction: prompt + imageNudge(),
             speechConfig: {
                 voiceConfig: {
                     prebuiltVoiceConfig: {
