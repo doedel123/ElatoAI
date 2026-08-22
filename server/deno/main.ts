@@ -49,6 +49,23 @@ const XIAOZHI_VISION_TOKEN = Deno.env.get('XIAOZHI_VISION_TOKEN') ?? 'elato-visi
 // to the waiter instead of describing it.
 const pendingPhotoCaptures = new Map<string, { resolve: (jpeg: Uint8Array) => void }>();
 
+// On Deno Deploy the WS session and the device's HTTP photo upload can land in
+// DIFFERENT isolates, so the in-memory rendezvous misses. BroadcastChannel
+// relays the photo to whichever isolate holds the waiter (no-op locally, where
+// a single process makes the local map sufficient).
+const photoChannel = typeof BroadcastChannel !== 'undefined'
+    ? new BroadcastChannel('xiaozhi-device-photos')
+    : null;
+photoChannel?.addEventListener('message', (e: MessageEvent) => {
+    const { mac, jpegB64 } = (e.data ?? {}) as { mac?: string; jpegB64?: string };
+    if (!mac || !jpegB64) return;
+    const pending = pendingPhotoCaptures.get(mac);
+    if (pending) {
+        console.log(`XIAOZHI photo relay: received ${mac} photo from another isolate`);
+        pending.resolve(new Uint8Array(Buffer.from(jpegB64, 'base64')));
+    }
+});
+
 function awaitDevicePhoto(mac: string, timeoutMs = 25000): Promise<Uint8Array> {
     const key = normalizeMacAddress(mac);
     return new Promise((resolve, reject) => {
@@ -806,13 +823,28 @@ async function handleXiaozhiVision(req: Request) {
 
     // Photo->stylize flow: a waiter registered by stylize_photo consumes this
     // upload; skip the describe step and confirm to the realtime model.
-    const pending = pendingPhotoCaptures.get(normalizeMacAddress(deviceMac));
+    const macKey = normalizeMacAddress(deviceMac);
+    const pending = pendingPhotoCaptures.get(macKey);
     if (pending) {
         console.log(`XIAOZHI vision: ${deviceMac} photo captured for stylize (${jpeg.length}B)`);
         pending.resolve(jpeg);
         return jsonResponse(200, {
             success: true,
             result: 'Photo captured. The stylized picture is being generated and will appear on the screen shortly.',
+        });
+    }
+    // Server-triggered capture, but the waiter lives in another isolate:
+    // relay the photo over the BroadcastChannel instead of describing it.
+    const isServerCapture = question.startsWith('stylize:') ||
+        question === 'capture for realtime session';
+    if (isServerCapture && photoChannel) {
+        console.log(
+            `XIAOZHI vision: ${deviceMac} relaying capture to waiter isolate (${jpeg.length}B, q="${question}")`,
+        );
+        photoChannel.postMessage({ mac: macKey, jpegB64: Buffer.from(jpeg).toString('base64') });
+        return jsonResponse(200, {
+            success: true,
+            result: 'Photo captured. The picture is being processed and will be ready shortly.',
         });
     }
 

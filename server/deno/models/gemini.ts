@@ -130,7 +130,7 @@ export const connectToGemini = async ({
         functionDeclarations.push({
             name: 'stylize_photo',
             description:
-                "Take a photo with the device's camera and transform it into a new AI-generated picture in a given artistic style (e.g. cartoon, watercolor, pixel art), shown on the device's screen. Use when the user asks to take a photo AND redraw or restyle it. The result takes a few seconds; keep talking meanwhile.",
+                "Take a photo with the device's camera and transform it into a new AI-generated picture in a given artistic style (e.g. cartoon, watercolor, pixel art), shown on the device's screen. Use when the user asks to take a photo AND redraw or restyle it. This tool takes the photo itself — never call take_photo in the same turn. The result takes a few seconds; keep talking meanwhile.",
             parameters: {
                 type: Type.OBJECT,
                 properties: {
