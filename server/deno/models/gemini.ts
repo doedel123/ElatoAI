@@ -359,101 +359,94 @@ export const connectToGemini = async ({
         return message;
     }
 
-    async function handleTurn() {
-        const turns: any[] = [];
-        let done = false;
-        while (!done) {
-            const message = await waitMessage();
-            turns.push(message);
-
-            if (message.toolCall?.functionCalls?.length) {
-                for (const fc of message.toolCall.functionCalls) {
-                    await handleFunctionCall(fc);
-                }
-            }
-
-            if (message.serverContent) {
-                if (message.serverContent.generationComplete) {
-                    opus.reset();
-                    ws.send(JSON.stringify({
-                        type: 'server',
-                        msg: 'RESPONSE.CREATED',
-                    }));
-                    done = true;
-                }
-            }
-        }
-        return turns;
+    function pushGeminiPcm(data: string) {
+        const pcm = Buffer.from(data, 'base64');
+        if (pcm.length === 0) return false;
+        opus.push(pcm);
+        return true;
     }
 
     async function processGeminiTurns() {
         try {
             console.log('Processing Gemini turns');
             while (geminiSession) {
-                const turns = await handleTurn();
-
-                // Combine all audio data from this turn
-                const combinedAudio = turns.reduce(
-                    (acc: number[], turn: any) => {
-                        if (turn.data) {
-                            const buffer = Buffer.from(turn.data, 'base64');
-                            const intArray = new Int16Array(
-                                buffer.buffer,
-                                buffer.byteOffset,
-                                buffer.byteLength /
-                                    Int16Array.BYTES_PER_ELEMENT,
-                            );
-                            return acc.concat(Array.from(intArray));
-                        }
-                        return acc;
-                    },
-                    [],
-                );
-
-                if (combinedAudio.length > 0) {
-                    // Convert back to buffer and send to client
-                    const audioBuffer = new Int16Array(combinedAudio);
-                    const buffer = Buffer.from(audioBuffer.buffer);
-
-                    // Use Opus packetizer to encode and send audio
-                    opus.push(buffer);
-                    opus.flush(true);
-                }
-
-                // Handle text responses if any
+                let turnDone = false;
+                let utteranceStarted = false;
                 let outputTranscriptionText = '';
                 let inputTranscriptionText = '';
-                for (const turn of turns as LiveServerMessage[]) {
-                    if (
-                        turn.serverContent &&
-                        turn.serverContent.outputTranscription
-                    ) {
-                        outputTranscriptionText += turn.serverContent.outputTranscription.text;
+                let sentenceBuffer = '';
+                let emotionSent = false;
+
+                while (!turnDone) {
+                    const message: any = await waitMessage();
+
+                    // Stream PCM as it arrives (Gemini Live already chunks;
+                    // waiting for generationComplete was the Xiaozhi delay).
+                    if (typeof message.data === 'string' && message.data.length > 0) {
+                        if (!utteranceStarted) {
+                            utteranceStarted = true;
+                            opus.reset();
+                            ws.send(JSON.stringify({
+                                type: 'server',
+                                msg: 'RESPONSE.CREATED',
+                            }));
+                        }
+                        pushGeminiPcm(message.data);
                     }
 
-                    if (
-                        turn.serverContent &&
-                        turn.serverContent.inputTranscription
-                    ) {
-                        inputTranscriptionText += turn.serverContent.inputTranscription.text;
+                    if (message.toolCall?.functionCalls?.length) {
+                        for (const fc of message.toolCall.functionCalls) {
+                            await handleFunctionCall(fc);
+                        }
+                    }
+
+                    const content = message.serverContent;
+                    if (content) {
+                        if (content.outputTranscription?.text) {
+                            const delta = content.outputTranscription.text;
+                            outputTranscriptionText += delta;
+                            sentenceBuffer += delta;
+                            const { sentences, rest } = extractSentences(sentenceBuffer);
+                            sentenceBuffer = rest;
+                            for (const sentence of sentences) {
+                                if (emitTextEvents && sentence.trim()) {
+                                    ws.send(JSON.stringify({
+                                        type: 'server',
+                                        msg: 'TTS_SENTENCE',
+                                        text: sentence.trim(),
+                                    }));
+                                }
+                            }
+                            if (!emotionSent && outputTranscriptionText.trim()) {
+                                emotionSent = true;
+                                const guess = heuristicEmotion(outputTranscriptionText);
+                                if (guess) emitEmotion(guess);
+                                classifyEmotion(outputTranscriptionText)
+                                    .then((e) => emitEmotion(e))
+                                    .catch(() => {});
+                            }
+                        }
+                        if (content.inputTranscription?.text) {
+                            inputTranscriptionText += content.inputTranscription.text;
+                        }
+                        if (content.interrupted) {
+                            opus.reset();
+                            utteranceStarted = false;
+                        }
+                        if (content.generationComplete) {
+                            if (utteranceStarted) {
+                                opus.flush(true);
+                            }
+                            turnDone = true;
+                        }
                     }
                 }
 
-                // Screen text for XIAOZHI: user transcript + assistant subtitles
-                // before the completion signal.
                 emitStt(inputTranscriptionText);
-                emitSentences(outputTranscriptionText);
-
-                // Hybrid emotion: instant heuristic + multilingual classifier.
-                if (emitTextEvents && outputTranscriptionText.trim()) {
-                    const guess = heuristicEmotion(outputTranscriptionText);
-                    if (guess) emitEmotion(guess);
-                    classifyEmotion(outputTranscriptionText)
-                        .then((e) => emitEmotion(e))
-                        .catch(() => {});
+                if (sentenceBuffer.trim()) {
+                    emitSentences(sentenceBuffer);
                 }
 
-                // Send completion signal
                 ws.send(JSON.stringify({
                     type: 'server',
                     msg: 'RESPONSE.COMPLETE',
