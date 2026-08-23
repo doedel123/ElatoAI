@@ -182,6 +182,21 @@ export const connectToGemini = async ({
         });
     }
 
+    // Pin the session language (ASR + TTS). Without this the transcription
+    // guesses per utterance and skews English ("Geist" -> "guys"), and the
+    // mis-heard text then pollutes chat history and Memory Bank.
+    const LANG_TO_BCP47: Record<string, string> = {
+        de: 'de-DE', en: 'en-US', es: 'es-ES', fr: 'fr-FR', it: 'it-IT',
+        pt: 'pt-BR', nl: 'nl-NL', pl: 'pl-PL', tr: 'tr-TR', ru: 'ru-RU',
+        ja: 'ja-JP', ko: 'ko-KR', zh: 'cmn-CN', hi: 'hi-IN', ar: 'ar-XA',
+    };
+    const rawLang = (user.language_code ?? user.language?.code ?? '').trim();
+    const sessionLanguage = rawLang.includes('-')
+        ? rawLang
+        : LANG_TO_BCP47[rawLang.toLowerCase()] ?? '';
+    if (sessionLanguage) console.log(`Gemini Live language: ${sessionLanguage}`);
+    else console.warn(`Gemini Live language: none resolvable (language_code=${JSON.stringify(rawLang)}) — ASR will guess`);
+
     const buildConfig = (prompt: string, voice: string): LiveConnectConfig => {
         const tools: any[] = [];
         // google_search grounding (concierge only; needs gemini-3.1+).
@@ -196,6 +211,7 @@ export const connectToGemini = async ({
                         voiceName: voice,
                     },
                 },
+                ...(sessionLanguage ? { languageCode: sessionLanguage } : {}),
             },
             realtimeInputConfig: {
                 automaticActivityDetection: {
