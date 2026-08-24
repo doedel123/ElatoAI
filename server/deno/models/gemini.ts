@@ -14,7 +14,7 @@ import { XIAOZHI_DEVICE_TOOL_BY_NAME, XIAOZHI_DEVICE_TOOLS } from '../device_too
 import { classifyEmotion, heuristicEmotion } from '../emotion.ts';
 import { addConversation, createFirstMessage, createSystemPrompt, getChatHistory } from '../supabase.ts';
 import { listPersonalities, resolvePersonality, setUserPersonality } from '../concierge.ts';
-import { rememberFact, saveSessionTranscript, searchMemories } from '../memory.ts';
+import { loadMemoryContext, rememberFact, saveSessionTranscript, searchMemories } from '../memory.ts';
 import type { TranscriptTurn } from '../memory.ts';
 
 export const connectToGemini = async ({
@@ -75,7 +75,8 @@ export const connectToGemini = async ({
     // Initialize Google GenAI
     const ai = new GoogleGenAI({ apiKey: geminiApiKey });
     // Concierge needs google_search grounding, which requires gemini-3.1+.
-    // The classic personality path keeps the proven native-audio model.
+    // A concierge connection keeps this model for the whole session, including
+    // after a switch into a personality (only prompt and voice change there).
     const model = Deno.env.get('GEMINI_LIVE_MODEL') ??
         (conciergeMode ? 'gemini-3.1-flash-live-preview' : 'gemini-2.5-flash-native-audio-preview-09-2025');
     console.log(`Gemini Live model: ${model}${conciergeMode ? ' (concierge)' : ''}`);
@@ -140,6 +141,8 @@ export const connectToGemini = async ({
             },
         });
     }
+    // Switching and memory stay available inside the personalities too, so the
+    // user can go back to James and the characters share the Memory Bank.
     if (conciergeMode) {
         functionDeclarations.push({
             name: 'list_personalities',
@@ -197,10 +200,24 @@ export const connectToGemini = async ({
     if (sessionLanguage) console.log(`Gemini Live language: ${sessionLanguage}`);
     else console.warn(`Gemini Live language: none resolvable (language_code=${JSON.stringify(rawLang)}) — ASR will guess`);
 
-    const buildConfig = (prompt: string, voice: string): LiveConnectConfig => {
+    // Web search is a concierge ability. Inside a character it also competes
+    // with the picture tools — with grounding on, the model answers instead of
+    // calling show_image. Set GEMINI_PERSONALITY_SEARCH=on to keep it anyway.
+    const searchInPersonalities = Deno.env.get('GEMINI_PERSONALITY_SEARCH') === 'on';
+
+    /**
+     * `grounding` refers to the session being built, not the connection: model,
+     * voice-independent tools and memory stay identical after a switch, only
+     * google_search is dropped for the characters.
+     */
+    const buildConfig = (
+        prompt: string,
+        voice: string,
+        opts: { grounding: boolean },
+    ): LiveConnectConfig => {
         const tools: any[] = [];
-        // google_search grounding (concierge only; needs gemini-3.1+).
-        if (conciergeMode) tools.push({ googleSearch: {} });
+        // google_search grounding (needs gemini-3.1+).
+        if (opts.grounding) tools.push({ googleSearch: {} });
         if (functionDeclarations.length) tools.push({ functionDeclarations });
         return {
             responseModalities: [Modality.AUDIO],
@@ -225,7 +242,9 @@ export const connectToGemini = async ({
             ...(tools.length ? { tools } : {}),
         };
     };
-    const config: LiveConnectConfig = buildConfig(systemPrompt, voiceName);
+    const config: LiveConnectConfig = buildConfig(systemPrompt, voiceName, {
+        grounding: conciergeMode === true,
+    });
 
     // Session transcript for Memory Bank ingestion (concierge only).
     const transcript: TranscriptTurn[] = [];
@@ -240,9 +259,17 @@ export const connectToGemini = async ({
     // Set by switch_personality; consumed after the tool response is sent so
     // the model's announcement audio is not cut off mid-word.
     let pendingSwitch: IPersonality | null = null;
+    // Once the switch is decided, the outgoing agent keeps generating and starts
+    // acting as the new character ("James introduces himself as Elsa"). Drop its
+    // audio and subtitles from there on; the announcement is already queued.
+    let outgoingSessionMuted = false;
+    // Grace period so the queued announcement finishes before the new session's
+    // first frame starts a fresh utterance (which flushes the pacer queue).
+    const switchDelayMs = Number(Deno.env.get('CONCIERGE_SWITCH_DELAY_MS') ?? '1200');
 
     async function handleFunctionCall(fc: { id?: string; name?: string; args?: any }) {
         let response: Record<string, unknown>;
+        console.log(`Gemini tool call: ${fc.name}`);
         const deviceTool = XIAOZHI_DEVICE_TOOL_BY_NAME[fc.name ?? ''];
         if (fc.name === 'take_photo' && capturePhoto) {
             // Multimodal path: push the raw JPEG straight into the Live session
@@ -291,7 +318,13 @@ export const connectToGemini = async ({
                 } else {
                     await setUserPersonality(supabase, user.user_id, target.personality_id);
                     pendingSwitch = target;
-                    response = { success: true, result: `Switching to ${target.title} now.` };
+                    outgoingSessionMuted = true;
+                    response = {
+                        success: true,
+                        result:
+                            `Handing over to ${target.title} now. Say nothing further and do not speak as ${target.title} — ` +
+                            `the character greets the user themselves.`,
+                    };
                 }
             } catch (e: unknown) {
                 response = { success: false, error: (e as Error).message };
@@ -332,12 +365,13 @@ export const connectToGemini = async ({
         if (pendingSwitch) {
             const target = pendingSwitch;
             pendingSwitch = null;
-            // Give the model a moment to voice its announcement, then swap.
+            // Let the queued announcement play out, then swap.
             setTimeout(() => {
-                restartWithPersonality(target).catch((e) =>
-                    console.error('Personality switch failed:', e?.message ?? e)
-                );
-            }, 2500);
+                restartWithPersonality(target).catch((e) => {
+                    console.error('Personality switch failed:', e?.message ?? e);
+                    outgoingSessionMuted = false;
+                });
+            }, switchDelayMs);
         }
     }
 
@@ -382,7 +416,10 @@ export const connectToGemini = async ({
 
                     // Stream PCM as it arrives (Gemini Live already chunks;
                     // waiting for generationComplete was the Xiaozhi delay).
-                    if (typeof message.data === 'string' && message.data.length > 0) {
+                    if (
+                        !outgoingSessionMuted && typeof message.data === 'string' &&
+                        message.data.length > 0
+                    ) {
                         if (!utteranceStarted) {
                             utteranceStarted = true;
                             opus.reset();
@@ -402,7 +439,7 @@ export const connectToGemini = async ({
 
                     const content = message.serverContent;
                     if (content) {
-                        if (content.outputTranscription?.text) {
+                        if (content.outputTranscription?.text && !outgoingSessionMuted) {
                             const delta = content.outputTranscription.text;
                             outputTranscriptionText += delta;
                             sentenceBuffer += delta;
@@ -523,14 +560,26 @@ export const connectToGemini = async ({
      * swap the Live session under the still-open device connection.
      */
     async function restartWithPersonality(target: IPersonality) {
-        console.log(`Concierge: switching personality -> ${target.key}`);
+        console.log(
+            `Concierge: switching personality -> ${target.key} (is_story=${!!target.is_story}, show_image=${!!showImage})`,
+        );
         maybeSaveMemories(true);
         payload.user.personality = target;
-        const chatHistory = await getChatHistory(supabase, user.user_id, target.key ?? null, false);
-        const prompt = createSystemPrompt(chatHistory, payload);
+        const [chatHistory, memoryContext] = await Promise.all([
+            getChatHistory(supabase, user.user_id, target.key ?? null, false),
+            // The characters share the concierge's Memory Bank, so they know
+            // what the user told James (and each other) earlier.
+            loadMemoryContext(user.user_id),
+        ]);
+        const prompt = createSystemPrompt(chatHistory, payload) +
+            (memoryContext ? `\n\n${memoryContext}` : '');
         const greeting = createFirstMessage(payload);
         const voice = target.oai_voice ?? defaultGeminiVoice;
-        await startSession(buildConfig(prompt, voice), greeting);
+        await startSession(
+            buildConfig(prompt, voice, { grounding: searchInPersonalities }),
+            greeting,
+        );
+        outgoingSessionMuted = false;
     }
 
     // Connect to Google Gemini Live
