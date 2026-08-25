@@ -6,7 +6,13 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { authenticateUser, createOpusPacketizer } from './utils.ts';
 import { XiaozhiWebSocketAdapter } from './xiaozhi.ts';
 import { describeImage } from './vision.ts';
-import { generateSceneImage, stylizeImage } from './image_gen.ts';
+import {
+    type GeneratedImage,
+    generateSceneImage,
+    pushGreetingImage,
+    stylizeImage,
+} from './image_gen.ts';
+import { greetingTimeInstruction } from './daypart.ts';
 import {
     createFirstMessage,
     createSystemPrompt,
@@ -406,6 +412,9 @@ async function handleConnection(
         showImage?: (description: string) => void;
         stylizePhoto?: (instruction: string) => Promise<string>;
         capturePhoto?: () => Promise<Uint8Array>;
+        // Pushes a ready image to the device screen (XIAOZHI). Used for the
+        // time-of-day greeting image on session start / personality switch.
+        pushImage?: (img: GeneratedImage, durationMs?: number) => void;
         // XIAOZHI entry point: start into the concierge agent instead of the
         // DB-assigned personality (kill switch: CONCIERGE_MODE=off).
         concierge?: boolean;
@@ -435,7 +444,8 @@ async function handleConnection(
         systemPrompt = createConciergePrompt(payload) +
             (memoryContext ? `\n\n${memoryContext}` : '');
         firstMessage =
-            'Greet the user warmly in one short sentence and ask what you can do for them.';
+            'Greet the user warmly in one short sentence and ask what you can do for them. ' +
+            greetingTimeInstruction();
         provider = 'gemini';
     } else {
         const chatHistory = await getChatHistory(
@@ -472,6 +482,12 @@ async function handleConnection(
         );
     }
 
+    // Time-of-day greeting image (XIAOZHI screens): fire-and-forget so the
+    // audio greeting is never delayed; cached per character+daypart.
+    if (opts.pushImage) {
+        pushGreetingImage(conciergeMode ? null : user.personality ?? null, opts.pushImage);
+    }
+
     // Common close handler for cleanup
     const closeHandler = async () => {
         // Add any common cleanup logic here
@@ -492,6 +508,7 @@ async function handleConnection(
         showImage: opts.showImage,
         stylizePhoto: opts.stylizePhoto,
         capturePhoto: opts.capturePhoto,
+        pushImage: opts.pushImage,
         conciergeMode,
     };
 
@@ -672,6 +689,12 @@ async function handleXiaozhiWebSocket(req: Request) {
                     })
                     .catch((e) => console.error('XIAOZHI stylize failed:', e?.message ?? e));
                 return 'Photo captured. The stylized picture is being generated and will appear on the screen in a few seconds.';
+            },
+            // Ready-made images (greeting image on start / persona switch).
+            pushImage: (img, durationMs) => {
+                const ms = durationMs ??
+                    Number(Deno.env.get('XIAOZHI_IMAGE_DURATION_MS') ?? '5000');
+                ws.sendImage(img.jpegBase64, img.width, img.height, ms);
             },
             // Fire-and-forget: generate the image in the background, then push
             // it to the device screen — never blocks the audio response.

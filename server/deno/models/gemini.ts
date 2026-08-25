@@ -14,6 +14,7 @@ import { XIAOZHI_DEVICE_TOOL_BY_NAME, XIAOZHI_DEVICE_TOOLS } from '../device_too
 import { classifyEmotion, heuristicEmotion } from '../emotion.ts';
 import { addConversation, createFirstMessage, createSystemPrompt, getChatHistory } from '../supabase.ts';
 import { listPersonalities, resolvePersonality, setUserPersonality } from '../concierge.ts';
+import { pushGreetingImage } from '../image_gen.ts';
 import { loadMemoryContext, rememberFact, saveSessionTranscript, searchMemories } from '../memory.ts';
 import type { TranscriptTurn } from '../memory.ts';
 
@@ -31,6 +32,7 @@ export const connectToGemini = async ({
     showImage,
     stylizePhoto,
     capturePhoto,
+    pushImage,
     conciergeMode,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
@@ -565,6 +567,9 @@ export const connectToGemini = async ({
         );
         maybeSaveMemories(true);
         payload.user.personality = target;
+        // Greeting image for the new character (time-of-day scene, cached) —
+        // generation runs while the new Live session is being set up.
+        if (pushImage) pushGreetingImage(target, pushImage);
         const [chatHistory, memoryContext] = await Promise.all([
             getChatHistory(supabase, user.user_id, target.key ?? null, false),
             // The characters share the concierge's Memory Bank, so they know

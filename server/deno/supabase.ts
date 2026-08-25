@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { greetingTimeInstruction, localTimeLine } from "./daypart.ts";
 import { decryptSecret } from "./utils.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -159,26 +160,29 @@ ${chatHistory}
 export const createFirstMessage = (
     payload: IPayload,
 ): string => {
-    const { timestamp, user } = payload;
+    const { user } = payload;
 
     const firstMessagePrompt = user.personality?.first_message_prompt
         ? `Always start the conversation following these instructions from the user: ${user.personality?.first_message_prompt}`
         : "Say hello to the user";
 
-    return firstMessagePrompt;
+    // Time-of-day-aware opening ("Guten Morgen" at 07:30, not "Hallo").
+    return `${firstMessagePrompt}\n\n${greetingTimeInstruction()}`;
 };
 
 export const createSystemPrompt = (
     chatHistory: IConversation[],
     payload: IPayload,
 ): string => {
-    const { user, timestamp } = payload;
+    const { user } = payload;
     const chatHistoryString = composeChatHistory(chatHistory);
     console.log("chatHistoryString", chatHistoryString);
+    // Local wall-clock time (the payload timestamp is UTC, which reads wrong
+    // to the model — e.g. two hours off in Germany).
     const commonPrompt = getCommonPromptTemplate(
         chatHistoryString,
         user,
-        timestamp,
+        localTimeLine(),
     );
 
     const isStory = user.personality?.is_story;

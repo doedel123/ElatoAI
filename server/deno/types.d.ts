@@ -261,5 +261,12 @@ declare global {
         // model (photo as reference), and pushes the result to the screen.
         // Resolves once the photo is captured; generation continues async.
         stylizePhoto?: (instruction: string) => Promise<string>;
+        // When present (XIAOZHI with a screen), the session pushes a
+        // time-of-day greeting image of the active character on start and
+        // after a personality switch (structurally a GeneratedImage).
+        pushImage?: (
+            img: { jpegBase64: string; width: number; height: number },
+            durationMs?: number,
+        ) => void;
     }
 }
