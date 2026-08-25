@@ -1,11 +1,15 @@
 import { Buffer } from "node:buffer";
 import { Image } from "imagescript";
-import { geminiApiKey, openaiApiKey } from "./utils.ts";
+import { geminiApiKey, openaiApiKey, xaiApiKey } from "./utils.ts";
 
-// gpt-image-1 only generates >=1024px (1024x1024, 1536x1024, 1024x1536).
-// We generate at 1536x1024 (3:2) then downscale to the device screen, which
+// Scene images default to xAI's grok-imagine-image-2.0 ("Grok Image 2"):
+// OpenAI's gpt-image models reject many kid requests (copyrighted characters
+// like Elsa) with 400 moderation errors. "grok*" models route to api.x.ai
+// (JPG at the requested aspect ratio; quality low/medium via IMAGE_QUALITY),
+// anything else to the OpenAI images API (IMAGE_SIZE/COMPRESSION apply
+// there). Either way the result is downscaled to the device screen, which
 // keeps the WS payload tiny (~10KB) and lets the firmware just decode + blit.
-const IMAGE_MODEL = Deno.env.get("IMAGE_MODEL") ?? "gpt-image-2";
+const IMAGE_MODEL = Deno.env.get("IMAGE_MODEL") ?? "grok-imagine-image-2.0";
 const IMAGE_SIZE = Deno.env.get("IMAGE_SIZE") ?? "1536x1024";
 const IMAGE_QUALITY = Deno.env.get("IMAGE_QUALITY") ?? "low";
 const IMAGE_COMPRESSION = Number(Deno.env.get("IMAGE_COMPRESSION") ?? "60");
@@ -30,35 +34,67 @@ export interface GeneratedImage {
  * runs in the background and is pushed to the device when ready.
  */
 export async function generateSceneImage(description: string): Promise<GeneratedImage> {
-    if (!openaiApiKey) throw new Error("OPENAI_API_KEY not configured for image generation");
+    const prompt = `${description.trim()}\n\n${STYLE}`;
+    const useXai = IMAGE_MODEL.startsWith("grok");
 
-    const [genW, genH] = IMAGE_SIZE.split("x").map(Number);
-    const resp = await fetch("https://api.openai.com/v1/images/generations", {
-        method: "POST",
-        headers: {
-            "Authorization": `Bearer ${openaiApiKey}`,
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            model: IMAGE_MODEL,
-            prompt: `${description.trim()}\n\n${STYLE}`,
-            size: IMAGE_SIZE,
-            quality: IMAGE_QUALITY,
-            output_format: "jpeg",
-            output_compression: IMAGE_COMPRESSION,
-            n: 1,
-        }),
-    });
+    let resp: Response;
+    let fallbackW: number;
+    let fallbackH: number;
+    if (useXai) {
+        if (!xaiApiKey) {
+            throw new Error("XAI_API_KEY / GROK_API_KEY not configured for image generation");
+        }
+        // 3:2 matches the device screen (480x320); at "low"/1k that comes
+        // back as a 1248x832 JPG. size/output_format params are unsupported.
+        fallbackW = 1248;
+        fallbackH = 832;
+        resp = await fetch("https://api.x.ai/v1/images/generations", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${xaiApiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: IMAGE_MODEL,
+                prompt,
+                quality: IMAGE_QUALITY,
+                aspect_ratio: "3:2",
+                n: 1,
+                response_format: "b64_json",
+            }),
+        });
+    } else {
+        if (!openaiApiKey) throw new Error("OPENAI_API_KEY not configured for image generation");
+        const [genW, genH] = IMAGE_SIZE.split("x").map(Number);
+        fallbackW = genW || 1536;
+        fallbackH = genH || 1024;
+        resp = await fetch("https://api.openai.com/v1/images/generations", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${openaiApiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                model: IMAGE_MODEL,
+                prompt,
+                size: IMAGE_SIZE,
+                quality: IMAGE_QUALITY,
+                output_format: "jpeg",
+                output_compression: IMAGE_COMPRESSION,
+                n: 1,
+            }),
+        });
+    }
 
     if (!resp.ok) {
-        throw new Error(`image gen error ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+        throw new Error(`image gen (${IMAGE_MODEL}) error ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
     }
     const data = await resp.json();
     const b64 = data?.data?.[0]?.b64_json;
     if (typeof b64 !== "string" || !b64) throw new Error("image gen returned no image");
 
     const jpegBytes: Uint8Array = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    return await toDeviceJpeg(jpegBytes, genW || 1536, genH || 1024);
+    return await toDeviceJpeg(jpegBytes, fallbackW, fallbackH);
 }
 
 /**
@@ -76,7 +112,20 @@ async function toDeviceJpeg(
         let outH = img.height;
         if (IMAGE_TARGET_SIZE.includes("x")) {
             const [tw, th] = IMAGE_TARGET_SIZE.split("x").map(Number);
-            img.resize(tw, th);
+            // Cover-fit: scale to fill the screen, then center-crop the
+            // overflow, so sources with a different aspect ratio (Grok 4:3,
+            // Gemini varies) aren't stretched.
+            const scale = Math.max(tw / img.width, th / img.height);
+            img.resize(
+                Math.max(tw, Math.ceil(img.width * scale)),
+                Math.max(th, Math.ceil(img.height * scale)),
+            );
+            img.crop(
+                Math.floor((img.width - tw) / 2),
+                Math.floor((img.height - th) / 2),
+                tw,
+                th,
+            );
             outW = tw;
             outH = th;
         }
