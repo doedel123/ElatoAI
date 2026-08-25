@@ -181,6 +181,14 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
     private helloAnswered = false;
     private readonly pacer: FramePacer;
     private readonly uplinkSampleRate: number;
+    // Uplink gate: mic audio is forwarded to the provider only inside a
+    // listen window (listen "start" .. "stop"/"detect"). Closed at connect on
+    // purpose: with CONFIG_SEND_WAKE_WORD_DATA the device streams its wake
+    // word recording ("ni hao xiao zhi") BEFORE listen start, and forwarding
+    // that made the ASR transcribe Chinese at the start of turns. All clients
+    // (firmware, browser sim, CLI sim) send listen start before speech.
+    private listening = false;
+    private gatedFrames = 0;
     private readonly visionUrl?: string;
     private readonly visionToken?: string;
     // MCP (camera) state.
@@ -245,6 +253,14 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
         const opusFrame = new Uint8Array(buf);
         if (opusFrame.length === 0) return;
 
+        // Drop audio outside listen windows (wake word data, stray frames).
+        // Undecoded on purpose: wake packets come from a separate on-device
+        // encoder and would only pollute the main stream's decoder state.
+        if (!this.listening) {
+            this.gatedFrames++;
+            return;
+        }
+
         let pcm16k: Uint8Array;
         try {
             pcm16k = this.decoder.decode(opusFrame);
@@ -294,7 +310,20 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
                 break;
             }
             case "listen":
-                // OpenAI server_vad handles turn detection; log for now.
+                // Turn detection stays with the provider VAD; the state only
+                // drives the uplink gate ("detect" = wake word phase, not
+                // user speech).
+                if (message.state === "start") {
+                    if (this.gatedFrames > 0) {
+                        console.log(
+                            `XIAOZHI gate: dropped ${this.gatedFrames} pre-listen audio frames (wake word/noise)`,
+                        );
+                        this.gatedFrames = 0;
+                    }
+                    this.listening = true;
+                } else if (message.state === "stop" || message.state === "detect") {
+                    this.listening = false;
+                }
                 console.log("XIAOZHI listen:", message.state, message.mode ?? "");
                 break;
             default:

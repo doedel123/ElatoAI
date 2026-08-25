@@ -28,6 +28,62 @@ const STYLE =
     "well-known or trademarked character, depict an original generic " +
     "character with a similar look and colors instead, without the brand.";
 
+// The chat models keep slipping franchise names into image descriptions
+// despite instructions (observed mid-session), and xAI then rejects the
+// generated image (imagine:content-moderated). So known kid-culture names are
+// replaced server-side with generic look-alike descriptions before
+// prompting. Common first names (Anna, Mario, ...) are included on purpose:
+// in practice kids mean the franchise character, and the generic replacement
+// is still a fine picture if they didn't.
+const BRAND_REPLACEMENTS: Array<[RegExp, string]> = [
+    [/\belsa('s)?\b/gi, "an ice princess with a long platinum-blonde braid and a sparkling ice-blue gown"],
+    [/\banna('s)?\b/gi, "a cheerful princess with reddish-brown braids and a green dress"],
+    [/\bolaf('s)?\b/gi, "a happy little snowman with stick arms, big eyes and a carrot nose"],
+    [/\bkristoff\b/gi, "a friendly mountain man in warm clothes"],
+    [/\barendelle\b/gi, "a cozy fairytale mountain village by a fjord"],
+    [/\b(die )?eisk[oö]nigin\b/gi, "an ice queen"],
+    [/\biron[ -]?man\b/gi, "a superhero in shiny red-and-gold metal armor"],
+    [/\bbatman\b/gi, "a superhero in a dark bat-themed suit with a cape"],
+    [/\bspider[ -]?man\b/gi, "a superhero in a red-and-blue suit with a web pattern"],
+    [/\bsuperman\b/gi, "a superhero with a red cape and a blue suit"],
+    [/\bhulk\b/gi, "a giant friendly green-skinned strongman"],
+    [/\bpikachu\b/gi, "a cute chubby yellow creature with long ears and a lightning-bolt tail"],
+    [/\bpok[eé]mon\b/gi, "cute collectible fantasy creatures"],
+    [/\bmi(c)?key (mouse|maus)\b/gi, "a cheerful cartoon mouse with big round ears and red shorts"],
+    [/\bminnie (mouse|maus)\b/gi, "a cheerful cartoon mouse girl with a polka-dot bow"],
+    [/\bdonald duck\b/gi, "a cartoon duck in a blue sailor shirt"],
+    [/\bpaw patrol\b/gi, "a team of heroic rescue puppies in colorful uniforms"],
+    [/\bpeppa( pig| wutz)?\b/gi, "a cheerful little cartoon pig in a red dress"],
+    [/\b(super )?mario('s)?\b/gi, "a cheerful mustachioed plumber with a red cap and blue overalls"],
+    [/\bluigi\b/gi, "a tall mustachioed plumber with a green cap"],
+    [/\bminions?\b/gi, "small yellow capsule-shaped helpers in blue overalls and goggles"],
+    [/\bharry potter\b/gi, "a young wizard with round glasses and a lightning-shaped scar"],
+    [/\bhogwarts\b/gi, "a grand old castle school for wizards"],
+    [/\bdarth vader\b/gi, "a tall figure in black armor with a black helmet and flowing cape"],
+    [/\bstar wars\b/gi, "a space adventure with glowing laser swords"],
+    [/\bbarbie('s)?\b/gi, "a glamorous doll-like woman with long blonde hair dressed in pink"],
+    [/\bbluey\b/gi, "a playful blue cartoon puppy"],
+    [/\bwinnie[ -](the[ -])?(pooh|puuh)\b/gi, "a friendly honey-loving yellow teddy bear in a red shirt"],
+];
+
+/** Replace known franchise/character names with generic descriptions. */
+export function scrubBrandNames(text: string): string {
+    let out = text;
+    for (const [re, replacement] of BRAND_REPLACEMENTS) {
+        out = out.replace(re, replacement);
+    }
+    return out;
+}
+
+// Appended on the moderation retry to push the model further away from
+// recognizable IP.
+const MODERATION_RETRY_SUFFIX =
+    " Depict only original generic characters of your own design — do not " +
+    "depict any franchise, movie or video-game character.";
+
+const isModerationError = (e: unknown): boolean =>
+    (e as Error)?.message?.includes("content-moderated") ?? false;
+
 export interface GeneratedImage {
     jpegBase64: string;
     width: number;
@@ -40,13 +96,28 @@ export interface GeneratedImage {
  * runs in the background and is pushed to the device when ready.
  */
 export async function generateSceneImage(description: string): Promise<GeneratedImage> {
-    const prompt = `${description.trim()}\n\n${STYLE}`;
+    const scrubbed = scrubBrandNames(description.trim());
+    if (scrubbed !== description.trim()) {
+        console.log(`image prompt debranded: "${scrubbed.slice(0, 100)}"`);
+    }
+    const prompt = `${scrubbed}\n\n${STYLE}`;
 
     if (IMAGE_MODEL.startsWith("grok")) {
         // 3:2 matches the device screen (480x320); at "low"/1k that comes
         // back as a 1248x832 JPG.
-        const bytes = await xaiImageRequest("generations", { prompt });
-        return await toDeviceJpeg(bytes, 1248, 832);
+        try {
+            const bytes = await xaiImageRequest("generations", { prompt });
+            return await toDeviceJpeg(bytes, 1248, 832);
+        } catch (e) {
+            // Output moderation is probabilistic; one retry pushed further
+            // away from recognizable IP usually passes.
+            if (!isModerationError(e)) throw e;
+            console.warn("image moderated, retrying with generic-only prompt");
+            const bytes = await xaiImageRequest("generations", {
+                prompt: prompt + MODERATION_RETRY_SUFFIX,
+            });
+            return await toDeviceJpeg(bytes, 1248, 832);
+        }
     }
 
     if (!openaiApiKey) throw new Error("OPENAI_API_KEY not configured for image generation");
@@ -173,18 +244,26 @@ export async function stylizeImage(
     photoJpeg: Uint8Array,
     instruction: string,
 ): Promise<GeneratedImage> {
-    const prompt = `Redraw this photo: ${instruction.trim()}. Keep the main subject and ` +
-        `composition clearly recognizable. No text, letters or captions ` +
-        `anywhere in the image.`;
+    const prompt = `Redraw this photo: ${scrubBrandNames(instruction.trim())}. Keep the main ` +
+        `subject and composition clearly recognizable. No text, letters or ` +
+        `captions anywhere in the image.`;
 
     if (STYLIZE_MODEL.startsWith("grok")) {
         const dataUrl = `data:image/jpeg;base64,${Buffer.from(photoJpeg).toString("base64")}`;
-        const bytes = await xaiImageRequest("edits", {
-            model: STYLIZE_MODEL,
-            prompt,
-            image: { url: dataUrl },
-        });
-        return await toDeviceJpeg(bytes, 1248, 832);
+        const image = { url: dataUrl };
+        try {
+            const bytes = await xaiImageRequest("edits", { model: STYLIZE_MODEL, prompt, image });
+            return await toDeviceJpeg(bytes, 1248, 832);
+        } catch (e) {
+            if (!isModerationError(e)) throw e;
+            console.warn("stylize moderated, retrying with generic-only prompt");
+            const bytes = await xaiImageRequest("edits", {
+                model: STYLIZE_MODEL,
+                prompt: prompt + MODERATION_RETRY_SUFFIX,
+                image,
+            });
+            return await toDeviceJpeg(bytes, 1248, 832);
+        }
     }
 
     if (!geminiApiKey) throw new Error("GEMINI_API_KEY not configured for photo stylization");
