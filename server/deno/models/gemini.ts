@@ -43,9 +43,9 @@ export const connectToGemini = async ({
     const imageNudge = () => {
         if (!showImage) return '';
         if (payload.user.personality?.is_story) {
-            return '\n\nYou can show pictures on the child\'s screen. Whenever you introduce or move to a new scene, call the show_image tool with a vivid visual description of that scene, then keep narrating.';
+            return '\n\nYou can show pictures on the child\'s screen. Whenever you introduce or move to a new scene, call the show_image tool with a vivid visual description of that scene, then keep narrating. In image descriptions, never use trademarked names — describe such characters generically by appearance.';
         }
-        return '\n\nYou can show pictures on the device\'s screen: when the user asks to see something, call the show_image tool with a vivid visual description instead of only describing it in words.';
+        return '\n\nYou can show pictures on the device\'s screen: when the user asks to see something, call the show_image tool with a vivid visual description instead of only describing it in words. In image descriptions, never use trademarked names — describe such characters generically by appearance.';
     };
 
     const opus = (opusFactory ?? createOpusPacketizer)((packet) => ws.send(packet));
@@ -119,11 +119,11 @@ export const connectToGemini = async ({
         functionDeclarations.push({
             name: 'show_image',
             description:
-                "Generate and display a picture on the device's screen. Use when the user asks to see or show something, or to illustrate the current scene while telling a story. The image takes a few seconds to appear; keep talking meanwhile.",
+                "Generate and display a picture on the device's screen. Use when the user asks to see or show something, or to illustrate the current scene while telling a story. The image takes a few seconds to appear; keep talking meanwhile. Never put trademarked names (characters, brands, franchises) in the description — describe them generically by appearance instead (e.g. 'ice princess with a long blonde braid' rather than the name), so generation is not refused.",
             parameters: {
                 type: Type.OBJECT,
                 properties: {
-                    description: { type: Type.STRING, description: 'A vivid, concrete visual description of the scene to draw.' },
+                    description: { type: Type.STRING, description: 'A vivid, concrete visual description of the scene to draw. No trademarked names — describe characters by look, clothing and colors.' },
                 },
                 required: ['description'],
             },
@@ -137,7 +137,7 @@ export const connectToGemini = async ({
             parameters: {
                 type: Type.OBJECT,
                 properties: {
-                    style: { type: Type.STRING, description: "The artistic style or transformation to apply, e.g. 'cartoon style'." },
+                    style: { type: Type.STRING, description: "The artistic style or transformation to apply, e.g. 'cartoon style'. No trademarked names — describe the desired look generically instead." },
                 },
                 required: ['style'],
             },

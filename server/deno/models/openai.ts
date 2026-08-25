@@ -193,14 +193,14 @@ export const connectToOpenAI = async ({
                 type: "function",
                 name: "show_image",
                 description:
-                    "Generate and display a picture on the device's screen. Use when the user asks to see or show something, or to illustrate the current scene while telling a story. The image takes a few seconds to appear; keep talking meanwhile.",
+                    "Generate and display a picture on the device's screen. Use when the user asks to see or show something, or to illustrate the current scene while telling a story. The image takes a few seconds to appear; keep talking meanwhile. Never put trademarked names (characters, brands, franchises) in the description — describe them generically by appearance instead (e.g. 'ice princess with a long blonde braid' rather than the name), so generation is not refused.",
                 parameters: {
                     type: "object",
                     strict: true,
                     properties: {
                         description: {
                             type: "string",
-                            description: "A vivid, concrete visual description of the scene to draw.",
+                            description: "A vivid, concrete visual description of the scene to draw. No trademarked names — describe characters by look, clothing and colors.",
                         },
                     },
                     required: ["description"],
@@ -228,7 +228,7 @@ export const connectToOpenAI = async ({
                     properties: {
                         style: {
                             type: "string",
-                            description: "The artistic style or transformation to apply, e.g. 'cartoon style'.",
+                            description: "The artistic style or transformation to apply, e.g. 'cartoon style'. No trademarked names — describe the desired look generically instead.",
                         },
                     },
                     required: ["style"],
@@ -507,7 +507,7 @@ export const connectToOpenAI = async ({
             voice: user.personality?.oai_voice ?? defaultOpenAIVoice,
             instructions: showImage && user.personality?.is_story
                 ? systemPrompt +
-                    "\n\nYou can show pictures on the child's screen. Whenever you introduce or move to a new scene, call the show_image tool with a vivid visual description of that scene, then keep narrating."
+                    "\n\nYou can show pictures on the child's screen. Whenever you introduce or move to a new scene, call the show_image tool with a vivid visual description of that scene, then keep narrating. In image descriptions, never use trademarked names — describe such characters generically by appearance."
                 : systemPrompt,
             input_audio_transcription: { model: "whisper-1" },
         };

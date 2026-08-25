@@ -5,14 +5,15 @@ import { Image } from "imagescript";
 import { type DaypartInfo, getDaypart } from "./daypart.ts";
 import { geminiApiKey, openaiApiKey, xaiApiKey } from "./utils.ts";
 
-// Scene images default to xAI's grok-imagine-image-2.0 ("Grok Image 2"):
-// OpenAI's gpt-image models reject many kid requests (copyrighted characters
-// like Elsa) with 400 moderation errors. "grok*" models route to api.x.ai
-// (JPG at the requested aspect ratio; quality low/medium via IMAGE_QUALITY),
-// anything else to the OpenAI images API (IMAGE_SIZE/COMPRESSION apply
-// there). Either way the result is downscaled to the device screen, which
-// keeps the WS payload tiny (~10KB) and lets the firmware just decode + blit.
-const IMAGE_MODEL = Deno.env.get("IMAGE_MODEL") ?? "grok-imagine-image-2.0";
+// Scene images default to xAI's grok-imagine-image: OpenAI's gpt-image
+// models reject many kid requests (copyrighted characters like Elsa) with
+// 400 moderation errors, and the v1 imagine model is about twice as fast
+// (and cheaper) than grok-imagine-image-2.0 at sufficient quality for the
+// tiny screen. "grok*" models route to api.x.ai (JPG at the requested aspect
+// ratio), anything else to the OpenAI images API (IMAGE_SIZE/COMPRESSION
+// apply there). Either way the result is downscaled to the device screen,
+// which keeps the WS payload tiny and lets the firmware just decode + blit.
+const IMAGE_MODEL = Deno.env.get("IMAGE_MODEL") ?? "grok-imagine-image";
 const IMAGE_SIZE = Deno.env.get("IMAGE_SIZE") ?? "1536x1024";
 const IMAGE_QUALITY = Deno.env.get("IMAGE_QUALITY") ?? "low";
 const IMAGE_COMPRESSION = Number(Deno.env.get("IMAGE_COMPRESSION") ?? "60");
@@ -23,7 +24,9 @@ const IMAGE_JPEG_QUALITY = Number(Deno.env.get("IMAGE_JPEG_QUALITY") ?? "80");
 const STYLE =
     "Warm, colorful, child-friendly storybook illustration. Simple, clear " +
     "composition that reads well on a tiny screen. No text, letters, words or " +
-    "captions anywhere in the image.";
+    "captions anywhere in the image. If the description references a " +
+    "well-known or trademarked character, depict an original generic " +
+    "character with a similar look and colors instead, without the brand.";
 
 export interface GeneratedImage {
     jpegBase64: string;
@@ -157,8 +160,10 @@ async function toDeviceJpeg(
     }
 }
 
-// Reference-based restyling ("photo -> cartoon") via Gemini image generation.
-const STYLIZE_MODEL = Deno.env.get("STYLIZE_MODEL") ?? "gemini-2.5-flash-image";
+// Reference-based restyling ("photo -> cartoon"). "grok*" models route to
+// xAI's images/edits (photo as reference image), "gemini*" models to Gemini
+// image generation.
+const STYLIZE_MODEL = Deno.env.get("STYLIZE_MODEL") ?? "grok-imagine-image";
 
 /**
  * Turn a camera photo into a new AI-generated picture in the given style,
@@ -168,6 +173,20 @@ export async function stylizeImage(
     photoJpeg: Uint8Array,
     instruction: string,
 ): Promise<GeneratedImage> {
+    const prompt = `Redraw this photo: ${instruction.trim()}. Keep the main subject and ` +
+        `composition clearly recognizable. No text, letters or captions ` +
+        `anywhere in the image.`;
+
+    if (STYLIZE_MODEL.startsWith("grok")) {
+        const dataUrl = `data:image/jpeg;base64,${Buffer.from(photoJpeg).toString("base64")}`;
+        const bytes = await xaiImageRequest("edits", {
+            model: STYLIZE_MODEL,
+            prompt,
+            image: { url: dataUrl },
+        });
+        return await toDeviceJpeg(bytes, 1248, 832);
+    }
+
     if (!geminiApiKey) throw new Error("GEMINI_API_KEY not configured for photo stylization");
 
     const resp = await fetch(
@@ -185,10 +204,9 @@ export async function stylizeImage(
                             },
                         },
                         {
-                            text:
-                                `Redraw this photo: ${instruction.trim()}. Keep the main subject and ` +
-                                `composition clearly recognizable. Landscape orientation. No text, ` +
-                                `letters or captions anywhere in the image.`,
+                            // Gemini has no aspect_ratio param, so ask for
+                            // landscape in the prompt instead.
+                            text: `${prompt} Landscape orientation.`,
                         },
                     ],
                 }],
