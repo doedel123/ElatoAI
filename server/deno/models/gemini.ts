@@ -82,6 +82,9 @@ export const connectToGemini = async ({
     const model = Deno.env.get('GEMINI_LIVE_MODEL') ??
         (conciergeMode ? 'gemini-3.1-flash-live-preview' : 'gemini-2.5-flash-native-audio-preview-09-2025');
     console.log(`Gemini Live model: ${model}${conciergeMode ? ' (concierge)' : ''}`);
+    // Multimodal function-response parts (camera photo inside the tool
+    // response) are verified on gemini-3.x live models only.
+    const photoInToolResponse = !/^gemini-2\./.test(model);
 
     // Build the tool list: camera (take_photo) + curated device-control tools.
     const functionDeclarations: any[] = [];
@@ -271,6 +274,8 @@ export const connectToGemini = async ({
 
     async function handleFunctionCall(fc: { id?: string; name?: string; args?: any }) {
         let response: Record<string, unknown>;
+        // Optional multimodal parts for the function response (camera JPEG).
+        let responseParts: Array<{ inlineData: { mimeType: string; data: string } }> | undefined;
         console.log(`Gemini tool call: ${fc.name}`);
         const deviceTool = XIAOZHI_DEVICE_TOOL_BY_NAME[fc.name ?? ''];
         if (fc.name === 'take_photo' && capturePhoto) {
@@ -278,10 +283,22 @@ export const connectToGemini = async ({
             // so the model looks at the picture itself (no separate VLM).
             try {
                 const jpeg = await capturePhoto();
-                geminiSession?.sendRealtimeInput({
-                    video: { data: Buffer.from(jpeg).toString('base64'), mimeType: 'image/jpeg' },
-                });
-                console.log(`Gemini: pushed camera JPEG into session (${jpeg.length}B)`);
+                const inlineData = { mimeType: 'image/jpeg', data: Buffer.from(jpeg).toString('base64') };
+                if (photoInToolResponse) {
+                    // The photo travels INSIDE the tool response (multimodal
+                    // function response part). Pushing it via
+                    // sendRealtimeInput was only picked up on the next user
+                    // turn, so the model answered about the previous photo;
+                    // sending it as clientContent while the call is pending
+                    // interrupts the turn. Verified on gemini-3.1-flash-live.
+                    responseParts = [{ inlineData }];
+                    console.log(`Gemini: attaching camera JPEG to tool response (${jpeg.length}B)`);
+                } else {
+                    // Legacy path for gemini-2.x native-audio models, where
+                    // response parts could not be verified.
+                    geminiSession?.sendRealtimeInput({ video: inlineData });
+                    console.log(`Gemini: pushed camera JPEG into session (${jpeg.length}B)`);
+                }
                 response = {
                     success: true,
                     result: 'The photo has been attached to the conversation. Look at it and answer directly.',
@@ -362,7 +379,11 @@ export const connectToGemini = async ({
             response = { success: false, error: `unknown tool ${fc.name}` };
         }
         geminiSession?.sendToolResponse({
-            functionResponses: [{ id: fc.id, name: fc.name, response }],
+            // `parts` is accepted by the Live API but missing from the
+            // @google/genai 2.1.0 typings, hence the cast.
+            functionResponses: [
+                { id: fc.id, name: fc.name, response, ...(responseParts ? { parts: responseParts } : {}) } as any,
+            ],
         });
         if (pendingSwitch) {
             const target = pendingSwitch;
@@ -412,6 +433,16 @@ export const connectToGemini = async ({
                 let inputTranscriptionText = '';
                 let sentenceBuffer = '';
                 let emotionSent = false;
+                // Show the user's transcript BEFORE the first answer chunk:
+                // TTS text/audio now streams immediately, so emitting STT at
+                // turn end put the answer above the question on the screen.
+                let sttEmitted = false;
+                const flushSttEarly = () => {
+                    if (!sttEmitted && inputTranscriptionText.trim()) {
+                        emitStt(inputTranscriptionText);
+                        sttEmitted = true;
+                    }
+                };
 
                 while (!turnDone) {
                     const message: any = await waitMessage();
@@ -424,6 +455,7 @@ export const connectToGemini = async ({
                     ) {
                         if (!utteranceStarted) {
                             utteranceStarted = true;
+                            flushSttEarly();
                             opus.reset();
                             ws.send(JSON.stringify({
                                 type: 'server',
@@ -442,6 +474,7 @@ export const connectToGemini = async ({
                     const content = message.serverContent;
                     if (content) {
                         if (content.outputTranscription?.text && !outgoingSessionMuted) {
+                            flushSttEarly();
                             const delta = content.outputTranscription.text;
                             outputTranscriptionText += delta;
                             sentenceBuffer += delta;
@@ -481,7 +514,7 @@ export const connectToGemini = async ({
                     }
                 }
 
-                emitStt(inputTranscriptionText);
+                if (!sttEmitted) emitStt(inputTranscriptionText);
                 if (sentenceBuffer.trim()) {
                     emitSentences(sentenceBuffer);
                 }
