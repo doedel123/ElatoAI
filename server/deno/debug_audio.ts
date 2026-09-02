@@ -8,7 +8,8 @@ import { isDev } from "./utils.ts";
  * i.e. after the XIAOZHI adapter's Opus decode + resample, or the raw PCM an
  * ELATO board sends. Produces a playable 16-bit mono WAV per connection.
  *
- * DEBUG_AUDIO=1          auto: Supabase Storage on Deno Deploy, local file otherwise
+ * DEBUG_AUDIO=1          auto: Supabase Storage when SUPABASE_SERVICE_ROLE_KEY is
+ *                        set or running on Deno Deploy, local file otherwise
  * DEBUG_AUDIO=file       write debug_audio_<ts>_<label>_<rate>Hz.wav next to main.ts
  * DEBUG_AUDIO=supabase   buffer in memory, upload to the DEBUG_AUDIO_BUCKET
  *                        (default "debug-audio") on close. Needs
@@ -31,15 +32,41 @@ const HEADER_PATCH_EVERY = 50;
 // Supabase mode: cap the in-memory buffer (30MB ≈ 15 min at 16kHz).
 const MAX_BUFFER_BYTES = 30 * 1024 * 1024;
 const BUCKET = Deno.env.get("DEBUG_AUDIO_BUCKET") ?? "debug-audio";
+// Supabase mode: re-upload (upsert) the growing WAV this often while the
+// connection is open, so the recording survives an isolate teardown at
+// disconnect and multi-turn sessions show up in the bucket while running.
+const UPLOAD_INTERVAL_MS = Number(Deno.env.get("DEBUG_AUDIO_UPLOAD_INTERVAL_MS") ?? "20000");
+
+const onDeploy = () =>
+    Boolean(Deno.env.get("DENO_DEPLOYMENT_ID") || Deno.env.get("DENO_REGION"));
 
 function resolveMode(): Mode | null {
     const v = (Deno.env.get("DEBUG_AUDIO") ?? "").toLowerCase();
     if (v === "file" || v === "local") return "file";
     if (v === "supabase" || v === "storage") return "supabase";
     if (v === "1" || v === "true" || isDev) {
-        return Deno.env.get("DENO_DEPLOYMENT_ID") ? "supabase" : "file";
+        return (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || onDeploy()) ? "supabase" : "file";
     }
     return null;
+}
+
+// Startup status line so a misconfiguration shows in the (Deploy) logs
+// before the first device connects.
+{
+    const mode = resolveMode();
+    if (mode === "supabase") {
+        const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        console.log(
+            key
+                ? `DEBUG_AUDIO: enabled, uploading recordings to Supabase Storage bucket "${BUCKET}"`
+                : "DEBUG_AUDIO: enabled (supabase) but SUPABASE_SERVICE_ROLE_KEY is missing — nothing will be recorded",
+        );
+    } else if (mode === "file") {
+        console.log(
+            "DEBUG_AUDIO: enabled, writing WAV files next to main.ts" +
+                (onDeploy() ? " — WARNING: on Deno Deploy files are lost; set SUPABASE_SERVICE_ROLE_KEY" : ""),
+        );
+    }
 }
 
 export function debugAudioEnabled(): boolean {
@@ -137,13 +164,16 @@ function openSupabaseRecorder(
     }
     const client = createClient(url, key, { auth: { persistSession: false } });
     const path = `${folder}/${name}`;
+    // Whole recording stays in memory; each upload upserts the full WAV.
     const chunks: Uint8Array[] = [];
     let dataBytes = 0;
+    let uploadedBytes = 0;
     let truncated = false;
     let closed = false;
+    let uploading: Promise<void> | null = null;
     console.log(`DEBUG_AUDIO: buffering uplink for upload to ${BUCKET}/${path} (${sampleRate}Hz)`);
 
-    const upload = async () => {
+    const buildWav = () => {
         const wav = new Uint8Array(HEADER_BYTES + dataBytes);
         wav.set(wavHeader(sampleRate, dataBytes), 0);
         let off = HEADER_BYTES;
@@ -151,11 +181,17 @@ function openSupabaseRecorder(
             wav.set(c, off);
             off += c.length;
         }
-        chunks.length = 0;
+        return wav;
+    };
+
+    const upload = async (final: boolean) => {
+        if (dataBytes === 0 || dataBytes === uploadedBytes) return;
+        const bytes = dataBytes;
+        const wav = buildWav();
         const doUpload = () =>
             client.storage.from(BUCKET).upload(path, wav, {
                 contentType: "audio/wav",
-                upsert: false,
+                upsert: true,
             });
         let { error } = await doUpload();
         if (error && /bucket not found/i.test(error.message)) {
@@ -164,11 +200,26 @@ function openSupabaseRecorder(
             ({ error } = await doUpload());
         }
         if (error) throw new Error(error.message);
+        uploadedBytes = bytes;
         console.log(
-            `DEBUG_AUDIO: uploaded ${BUCKET}/${path} (${seconds(dataBytes, sampleRate)}s` +
-                `${truncated ? ", truncated" : ""}) — Supabase Dashboard > Storage > ${BUCKET}`,
+            `DEBUG_AUDIO: ${final ? "final upload" : "uploaded so far"} ${BUCKET}/${path} ` +
+                `(${seconds(bytes, sampleRate)}s${truncated ? ", truncated" : ""})` +
+                (final ? ` — Supabase Dashboard > Storage > ${BUCKET}` : ""),
         );
     };
+    // Never run two uploads concurrently; a periodic one still in flight at
+    // close is followed by the final one.
+    const scheduleUpload = (final: boolean) => {
+        const run = () =>
+            upload(final).catch((e) =>
+                console.warn("DEBUG_AUDIO: upload failed:", (e as Error).message)
+            );
+        uploading = uploading ? uploading.then(run) : run();
+        return uploading;
+    };
+    const timer = UPLOAD_INTERVAL_MS > 0
+        ? setInterval(() => scheduleUpload(false), UPLOAD_INTERVAL_MS)
+        : null;
 
     return {
         path: `${BUCKET}/${path}`,
@@ -185,10 +236,8 @@ function openSupabaseRecorder(
         close() {
             if (closed) return;
             closed = true;
-            if (dataBytes === 0) return;
-            upload().catch((e) =>
-                console.warn("DEBUG_AUDIO: upload failed:", (e as Error).message)
-            );
+            if (timer !== null) clearInterval(timer);
+            void scheduleUpload(true);
         },
     };
 }
