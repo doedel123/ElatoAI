@@ -47,6 +47,17 @@ const XIAOZHI_PROVIDER_UPLINK_RATE: Record<string, number> = {
     gemini: 16000,
 };
 
+// Single source of truth for which realtime provider a session runs on. The
+// XIAOZHI adapter's uplink resampling MUST use the same answer as
+// handleConnection, otherwise the provider is told the wrong sample rate
+// (e.g. 24kHz PCM labelled 16kHz -> Gemini hears slow-motion speech).
+function resolveProvider(user: IUser, conciergeMode: boolean): string {
+    // Concierge entry always runs on Gemini Live (personality switches stay
+    // inside that session).
+    if (conciergeMode) return 'gemini';
+    return user.personality?.provider ?? 'openai';
+}
+
 // Shared secret handed to the device in the MCP `initialize` (capabilities.vision.token)
 // and verified on the vision endpoint. Keeps random callers from hitting the VLM.
 const XIAOZHI_VISION_TOKEN = Deno.env.get('XIAOZHI_VISION_TOKEN') ?? 'elato-vision';
@@ -416,6 +427,8 @@ async function handleConnection(
         // Pushes a ready image to the device screen (XIAOZHI). Used for the
         // time-of-day greeting image on session start / personality switch.
         pushImage?: (img: GeneratedImage, durationMs?: number) => void;
+        // Label for DEBUG_AUDIO recordings (e.g. the device MAC).
+        debugLabel?: string;
         // XIAOZHI entry point: start into the concierge agent instead of the
         // DB-assigned personality (kill switch: CONCIERGE_MODE=off).
         concierge?: boolean;
@@ -437,7 +450,7 @@ async function handleConnection(
         firstMessage =
             'Greet the user warmly in one short sentence and ask what you can do for them. ' +
             greetingTimeInstruction();
-        provider = 'gemini';
+        provider = resolveProvider(user, true);
     } else {
         const chatHistory = await getChatHistory(
             supabase,
@@ -448,7 +461,7 @@ async function handleConnection(
         firstMessage = createFirstMessage(payload);
         systemPrompt = createSystemPrompt(chatHistory, payload);
 
-        provider = user.personality?.provider ?? 'openai';
+        provider = resolveProvider(user, false);
         if (!user.personality?.provider) {
             console.warn('Personality has no provider configured; falling back to openai');
         }
@@ -458,7 +471,7 @@ async function handleConnection(
     // DEBUG_AUDIO=1: record the uplink PCM exactly as this provider gets it.
     const connectionPcmFile = await openDebugRecorder(
         XIAOZHI_PROVIDER_UPLINK_RATE[provider] ?? 24000,
-        `${user.device?.mac_address ?? 'device'}_${provider}`,
+        `${opts.debugLabel ?? user.device?.mac_address ?? 'device'}_${provider}`,
     );
 
     // send user details to client
@@ -621,8 +634,10 @@ async function handleXiaozhiWebSocket(req: Request) {
     const authedUser = user;
 
     // Each provider expects the uplink (mic) PCM at a specific rate. We resample
-    // the device's 16kHz audio accordingly in the adapter.
-    const provider = authedUser.personality?.provider ?? 'openai';
+    // the device's 16kHz audio accordingly in the adapter. Must match the
+    // provider handleConnection picks (concierge mode forces Gemini).
+    const conciergeOn = (Deno.env.get('CONCIERGE_MODE') ?? 'on') !== 'off';
+    const provider = resolveProvider(authedUser, conciergeOn);
     const uplinkSampleRate = XIAOZHI_PROVIDER_UPLINK_RATE[provider];
     if (uplinkSampleRate === undefined) {
         console.warn(
@@ -632,7 +647,7 @@ async function handleXiaozhiWebSocket(req: Request) {
 
     const visionUrl = getXiaozhiVisionUrl(req);
     console.log(
-        `XIAOZHI WS connect: mac=${authedUser.device?.mac_address ?? '?'} provider=${provider} visionUrl=${visionUrl}`,
+        `XIAOZHI WS connect: mac=${deviceMac} provider=${provider} uplink=${uplinkSampleRate ?? 24000}Hz visionUrl=${visionUrl}`,
     );
 
     const { socket, response } = Deno.upgradeWebSocket(req);
@@ -650,7 +665,8 @@ async function handleXiaozhiWebSocket(req: Request) {
         }, {
             sendAuthMessage: false,
             emitTextEvents: true,
-            concierge: (Deno.env.get('CONCIERGE_MODE') ?? 'on') !== 'off',
+            concierge: conciergeOn,
+            debugLabel: deviceMac ?? undefined,
             requestPhoto: (question) => ws.requestPhoto(question),
             callDeviceTool: (name, callArgs) => ws.callDeviceTool(name, callArgs),
             // Raw JPEG for the multimodal path: trigger the camera, grab the
