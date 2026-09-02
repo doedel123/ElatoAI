@@ -54,6 +54,11 @@ class FramePacer {
         this.prebufferMs = prebufferFrames * frameDurationMs;
     }
 
+    /** True from the first queued frame until tts:stop has been sent. */
+    get isSpeaking(): boolean {
+        return this.speaking;
+    }
+
     /** A new assistant response is starting. */
     startUtterance() {
         this.cancelStopTimer();
@@ -189,6 +194,11 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
     // (firmware, browser sim, CLI sim) send listen start before speech.
     private listening = false;
     private gatedFrames = 0;
+    // Image held back while the assistant is speaking. Pushing a large JSON
+    // frame mid-utterance stalls the device's audio pipeline (decode + LVGL
+    // draw compete with Opus playback), so images go out at tts:stop. Only
+    // the newest image is kept; an older pending one is superseded.
+    private pendingImage: string | null = null;
     private readonly visionUrl?: string;
     private readonly visionToken?: string;
     // MCP (camera) state.
@@ -218,7 +228,10 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
             DRAIN_DELAY_MS,
             (frame) => this.rawSend(frame),
             () => this.sendTts("start"),
-            () => this.sendTts("stop"),
+            () => {
+                this.sendTts("stop");
+                this.flushPendingImage();
+            },
         );
 
         this.socket.onmessage = (event) => {
@@ -299,6 +312,7 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
                 // truncate the assistant turn at what was actually played.
                 console.log("XIAOZHI abort:", message.reason ?? "");
                 const playedMs = this.pacer.abort();
+                this.flushPendingImage();
                 this.dispatch(
                     Buffer.from(JSON.stringify({
                         type: "instruction",
@@ -538,9 +552,12 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
      * Push a generated image to the device screen as base64 JPEG. Sent as a
      * `custom` message so it rides the existing protocol; firmware must handle
      * payload.action === "show_image" (decode base64 -> JPEG -> LVGL).
+     *
+     * While the assistant is speaking the image is held back and sent right
+     * after tts:stop, so the transfer never competes with audio playback.
      */
     sendImage(jpegBase64: string, width: number, height: number, durationMs = 5000) {
-        this.rawSend(JSON.stringify({
+        const message = JSON.stringify({
             type: "custom",
             session_id: this.sessionId,
             payload: {
@@ -552,7 +569,22 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
                 duration_ms: durationMs,
                 data: jpegBase64,
             },
-        }));
+        });
+        if (this.pacer.isSpeaking) {
+            if (this.pendingImage) console.log("XIAOZHI image: replacing pending image");
+            this.pendingImage = message;
+            console.log("XIAOZHI image deferred until tts:stop");
+            return;
+        }
+        this.rawSend(message);
+    }
+
+    private flushPendingImage() {
+        if (!this.pendingImage) return;
+        const message = this.pendingImage;
+        this.pendingImage = null;
+        this.rawSend(message);
+        console.log("XIAOZHI deferred image pushed after tts:stop");
     }
 
     private sendTts(state: "start" | "stop") {
