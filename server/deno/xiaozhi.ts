@@ -14,6 +14,11 @@ const SERVER_FRAME_DURATION_MS = 60;
 // wall-clock rate so the device's audio buffer neither overflows nor starves.
 const PREBUFFER_FRAMES = 5; // 5 * 60ms = 300ms headroom
 const DRAIN_DELAY_MS = 420; // wait after the queue drains before tts:stop
+// Quiet window after tts:stop / abort before a held-back image is sent. The
+// device switches speaking -> listening right then (starts its audio
+// pipeline, allocates buffers); a large image frame in that window has been
+// seen to freeze the firmware (no uplink, no pong -> Deno ping timeout).
+const IMAGE_DELAY_MS = Number(Deno.env.get("XIAOZHI_IMAGE_DELAY_MS") ?? "1000");
 
 type MessageHandler = (data: Buffer, isBinary: boolean) => void;
 type ErrorHandler = (error: unknown) => void;
@@ -199,6 +204,9 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
     // draw compete with Opus playback), so images go out at tts:stop. Only
     // the newest image is kept; an older pending one is superseded.
     private pendingImage: string | null = null;
+    private imageTimer: number | null = null;
+    // Images are held until this wall-clock time (set at tts:stop / abort).
+    private imageQuietUntil = 0;
     private readonly visionUrl?: string;
     private readonly visionToken?: string;
     // MCP (camera) state.
@@ -230,7 +238,7 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
             () => this.sendTts("start"),
             () => {
                 this.sendTts("stop");
-                this.flushPendingImage();
+                this.enterImageQuietWindow();
             },
         );
 
@@ -253,6 +261,7 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
 
         this.socket.onclose = (event) => {
             this.pacer.dispose();
+            this.clearImageTimer();
             this.rejectPendingMcp("connection closed");
             for (const handler of this.closeHandlers) {
                 handler(event.code, event.reason);
@@ -312,7 +321,7 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
                 // truncate the assistant turn at what was actually played.
                 console.log("XIAOZHI abort:", message.reason ?? "");
                 const playedMs = this.pacer.abort();
-                this.flushPendingImage();
+                this.enterImageQuietWindow();
                 this.dispatch(
                     Buffer.from(JSON.stringify({
                         type: "instruction",
@@ -553,8 +562,9 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
      * `custom` message so it rides the existing protocol; firmware must handle
      * payload.action === "show_image" (decode base64 -> JPEG -> LVGL).
      *
-     * While the assistant is speaking the image is held back and sent right
-     * after tts:stop, so the transfer never competes with audio playback.
+     * While the assistant is speaking (and for IMAGE_DELAY_MS after tts:stop)
+     * the image is held back, so the transfer never competes with audio
+     * playback or the device's speaking -> listening transition.
      */
     sendImage(jpegBase64: string, width: number, height: number, durationMs = 5000) {
         const message = JSON.stringify({
@@ -570,13 +580,37 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
                 data: jpegBase64,
             },
         });
-        if (this.pacer.isSpeaking) {
+        if (this.pacer.isSpeaking || Date.now() < this.imageQuietUntil) {
             if (this.pendingImage) console.log("XIAOZHI image: replacing pending image");
             this.pendingImage = message;
-            console.log("XIAOZHI image deferred until tts:stop");
+            console.log(
+                this.pacer.isSpeaking
+                    ? "XIAOZHI image deferred until tts:stop"
+                    : `XIAOZHI image deferred (${this.imageQuietUntil - Date.now()}ms quiet window)`,
+            );
+            this.scheduleImageFlush();
             return;
         }
         this.rawSend(message);
+    }
+
+    /** tts:stop / abort: start the quiet window, then flush a pending image. */
+    private enterImageQuietWindow() {
+        this.imageQuietUntil = Date.now() + IMAGE_DELAY_MS;
+        this.scheduleImageFlush();
+    }
+
+    private scheduleImageFlush() {
+        if (!this.pendingImage || this.imageTimer !== null) return;
+        // While speaking there is nothing to arm: the tts:stop callback
+        // re-enters the quiet window and calls us again.
+        if (this.pacer.isSpeaking) return;
+        const wait = Math.max(0, this.imageQuietUntil - Date.now());
+        this.imageTimer = setTimeout(() => {
+            this.imageTimer = null;
+            if (this.pacer.isSpeaking) return; // new utterance started meanwhile
+            this.flushPendingImage();
+        }, wait);
     }
 
     private flushPendingImage() {
@@ -584,7 +618,15 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
         const message = this.pendingImage;
         this.pendingImage = null;
         this.rawSend(message);
-        console.log("XIAOZHI deferred image pushed after tts:stop");
+        console.log(`XIAOZHI deferred image pushed (${IMAGE_DELAY_MS}ms after tts:stop)`);
+    }
+
+    private clearImageTimer() {
+        if (this.imageTimer !== null) {
+            clearTimeout(this.imageTimer);
+            this.imageTimer = null;
+        }
+        this.pendingImage = null;
     }
 
     private sendTts(state: "start" | "stop") {
@@ -608,6 +650,7 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
 
     close(code?: number, reason?: string) {
         this.pacer.dispose();
+        this.clearImageTimer();
         try {
             this.socket.close(code, reason);
         } catch (err) {
