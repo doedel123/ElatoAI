@@ -9,7 +9,7 @@ import {
     Session,
     Type,
 } from 'npm:@google/genai';
-import { createOpusPacketizer, defaultGeminiVoice, extractSentences, geminiApiKey, isDev } from '../utils.ts';
+import { createOpusPacketizer, defaultGeminiVoice, extractSentences, geminiApiKey } from '../utils.ts';
 import { XIAOZHI_DEVICE_TOOL_BY_NAME, XIAOZHI_DEVICE_TOOLS } from '../device_tools.ts';
 import { classifyEmotion, heuristicEmotion } from '../emotion.ts';
 import { addConversation, createFirstMessage, createSystemPrompt, getChatHistory } from '../supabase.ts';
@@ -637,7 +637,7 @@ export const connectToGemini = async ({
                 // Handle binary audio data from ESP32
                 const base64Data = data.toString('base64');
 
-                if (isDev && connectionPcmFile) {
+                if (connectionPcmFile) {
                     connectionPcmFile.write(data);
                 }
 
@@ -665,7 +665,7 @@ export const connectToGemini = async ({
         await closeHandler();
         opus.close();
         geminiSession?.close();
-        if (isDev && connectionPcmFile) {
+        if (connectionPcmFile) {
             connectionPcmFile.close();
             console.log('Closed debug audio file.');
         }

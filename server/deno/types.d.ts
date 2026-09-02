@@ -226,7 +226,8 @@ declare global {
     interface ProviderArgs {
         ws: ClientWebSocket;
         payload: IPayload;
-        connectionPcmFile: Deno.FsFile | null;
+        // Uplink debug recording (DEBUG_AUDIO=1), null when disabled.
+        connectionPcmFile: import('./debug_audio.ts').DebugRecorder | null;
         firstMessage: string;
         systemPrompt: string;
         closeHandler: () => Promise<void>;

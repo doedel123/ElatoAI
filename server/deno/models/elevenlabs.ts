@@ -8,7 +8,7 @@ import {
     WebSocketConnection,
 } from 'npm:@elevenlabs/client';
 import { addConversation, getDeviceInfo } from '../supabase.ts';
-import { createOpusPacketizer, elevenLabsApiKey, isDev, SAMPLE_RATE } from '../utils.ts';
+import { createOpusPacketizer, elevenLabsApiKey, SAMPLE_RATE } from '../utils.ts';
 
 // Calculate audio level for debugging
 function calculateAudioLevel(audioData: any): number {
@@ -84,7 +84,7 @@ export const connectToElevenLabs = async ({
     const handleClientMessage = async (data: any, isBinary: boolean) => {
         try {
             if (isBinary) {
-                if (isDev && connectionPcmFile) {
+                if (connectionPcmFile) {
                     await connectionPcmFile.write(data);
                 }
 
@@ -164,7 +164,7 @@ export const connectToElevenLabs = async ({
         opus.close();
         elevenLabsConnection?.close();
 
-        if (isDev && connectionPcmFile) {
+        if (connectionPcmFile) {
             connectionPcmFile.close();
             console.log('Closed debug audio file.');
         }

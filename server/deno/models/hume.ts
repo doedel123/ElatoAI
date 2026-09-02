@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import type { RawData } from "npm:@types/ws";
 import { WebSocket } from "npm:ws";
 import { addConversation, getDeviceInfo } from "../supabase.ts";
-import { createOpusPacketizer, isDev, humeApiKey, downsamplePcm, extractPcmFromWav, boostLimitPCM16LEInPlace } from "../utils.ts";
+import { createOpusPacketizer, humeApiKey, downsamplePcm, extractPcmFromWav, boostLimitPCM16LEInPlace } from "../utils.ts";
 
 export const connectToHume = ({
     ws,
@@ -248,7 +248,7 @@ export const connectToHume = ({
                 }
 
                 // Write to debug file if enabled
-                if (isDev && connectionPcmFile) {
+                if (connectionPcmFile) {
                     await connectionPcmFile.write(data as Buffer);
                 }
             }
@@ -277,7 +277,7 @@ export const connectToHume = ({
         opus.close();
         humeWs.close();
 
-        if (isDev && connectionPcmFile) {
+        if (connectionPcmFile) {
             connectionPcmFile.close();
             console.log("Closed debug audio file");
         }

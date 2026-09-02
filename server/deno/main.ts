@@ -21,6 +21,7 @@ import {
 } from './supabase.ts';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isDev } from './utils.ts';
+import { openDebugRecorder } from './debug_audio.ts';
 import { createConciergePrompt } from './concierge.ts';
 import { loadMemoryContext } from './memory.ts';
 import { connectToOpenAI } from './models/openai.ts';
@@ -422,16 +423,6 @@ async function handleConnection(
 ) {
     const { user, supabase } = payload;
 
-    let connectionPcmFile: Deno.FsFile | null = null;
-    if (isDev) {
-        const filename = `debug_audio_${Date.now()}.pcm`;
-        connectionPcmFile = await Deno.open(filename, {
-            create: true,
-            write: true,
-            append: true,
-        });
-    }
-
     const conciergeMode = opts.concierge === true;
 
     let firstMessage: string;
@@ -463,6 +454,12 @@ async function handleConnection(
         }
     }
     const personalityImageBase64 = await getPersonalityImageBase64(user.personality);
+
+    // DEBUG_AUDIO=1: record the uplink PCM exactly as this provider gets it.
+    const connectionPcmFile = await openDebugRecorder(
+        XIAOZHI_PROVIDER_UPLINK_RATE[provider] ?? 24000,
+        `${user.device?.mac_address ?? 'device'}_${provider}`,
+    );
 
     // send user details to client
     // when DEV_MODE is true, we send the default values 100, false, false

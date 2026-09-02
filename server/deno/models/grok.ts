@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import type { RawData } from "npm:@types/ws";
 import { WebSocket } from "npm:ws";
 import { addConversation, getDeviceInfo } from "../supabase.ts";
-import { createOpusPacketizer, isDev, xaiApiKey, defaultGrokVoice } from "../utils.ts";
+import { createOpusPacketizer, xaiApiKey, defaultGrokVoice } from "../utils.ts";
 
 const XAI_REALTIME_URL = "wss://api.x.ai/v1/realtime";
 
@@ -175,7 +175,7 @@ export const connectToGrok = async ({
             const base64Data = (data as Buffer).toString("base64");
             grokWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: base64Data }));
 
-            if (isDev && connectionPcmFile) {
+            if (connectionPcmFile) {
                 await connectionPcmFile.write(data as Buffer);
             }
             return;
@@ -217,7 +217,7 @@ export const connectToGrok = async ({
         await closeHandler();
         opus.close();
         grokWs.close();
-        if (isDev && connectionPcmFile) {
+        if (connectionPcmFile) {
             connectionPcmFile.close();
         }
     });
