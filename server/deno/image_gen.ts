@@ -3,6 +3,7 @@
 import { Buffer } from "node:buffer";
 import { Image } from "imagescript";
 import { type DaypartInfo, getDaypart } from "./daypart.ts";
+import { downloadPersonalityImage } from "./supabase.ts";
 import { geminiApiKey, openaiApiKey, xaiApiKey } from "./utils.ts";
 
 // Scene images default to xAI's grok-imagine-image: OpenAI's gpt-image
@@ -331,7 +332,11 @@ async function loadPortrait(key: string | undefined): Promise<Uint8Array | null>
     try {
         return await Deno.readFile(new URL(`./personality/${key}.jpeg`, import.meta.url));
     } catch {
-        return null;
+        try {
+            return await downloadPersonalityImage(key);
+        } catch {
+            return null;
+        }
     }
 }
 

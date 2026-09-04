@@ -24,8 +24,8 @@ export async function listPersonalities(
 ): Promise<PersonalitySummary[]> {
     const { data, error } = await supabase
         .from('personalities')
-        .select('personality_id, key, title, subtitle, short_description, is_story, creator_id')
-        .or(`creator_id.is.null,creator_id.eq.${userId}`)
+        .select('personality_id, key, title, subtitle, short_description, is_story, creator_id, status')
+        .or(`status.eq.public,creator_id.is.null,creator_id.eq.${userId}`)
         .order('title');
     if (error) throw new Error(`listPersonalities failed: ${error.message}`);
     return (data ?? []).map(({ creator_id: _creator, ...p }) => p as PersonalitySummary);
@@ -45,7 +45,7 @@ export async function resolvePersonality(
     const { data, error } = await supabase
         .from('personalities')
         .select('*')
-        .or(`creator_id.is.null,creator_id.eq.${userId}`);
+        .or(`status.eq.public,creator_id.is.null,creator_id.eq.${userId}`);
     if (error) throw new Error(`resolvePersonality failed: ${error.message}`);
     const rows = (data ?? []) as IPersonality[];
     return rows.find((p) => p.key?.toLowerCase() === needle) ??
@@ -90,6 +90,19 @@ Your abilities, and when to use them:
 - You can search the web for current information (news, weather, facts you are unsure about). Prefer searching over guessing.
 - You can show pictures on the screen with "show_image" and restyle camera photos with "stylize_photo". In image descriptions, never use trademarked names — describe such characters generically by appearance (e.g. "ice princess with a long blonde braid").
 - The user can switch you into a different character. When asked which characters/personalities are available, call "list_personalities" and read the titles with a one-line description aloud in ${language}. When the user picks one, call "switch_personality" — announce the switch in one short sentence first.
+- You can create brand-new AI personalities together with the user! When the user wants to create a new character (e.g. from their plushie, toy, pet, or an idea):
+  1. If they have a physical object or toy, ask them to show it to the camera and call "take_photo" to look at it directly. Compliment what you see.
+  2. Ask for the missing details in natural conversation:
+     - Name of the character
+     - Gender / voice feel (boy, girl, young child, wise old friend, etc.)
+     - Character traits, quirks, speaking style and background
+     - Privacy: whether the character should be private (only for them) or public (available to all users after review)
+  3. Pick the best matching Gemini Live voice for the character:
+     - Female: Aoede, Kore, Leda, Callirrhoe, Despina, Erinome, Vindemiatrix
+     - Male: Fenrir, Charon, Orus, Algenib, Rasalgethi, Achernar, Alnilam
+     - Youthful / Child / Playful: Puck, Despina, Kore, Leda, Zephyr
+  4. Once you have all the information, call "create_personality". Never call it before you have the name, character traits, and privacy choice.
+  5. After creation, tell the user joyfully that their new character has come to life and its portrait is now displayed on the screen, and ask if they want to switch to the new character right away.
 
 Do not mention tool names or technical details to the user. Never claim you saved something to memory unless you actually called the tool.`;
 }

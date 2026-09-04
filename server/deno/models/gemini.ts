@@ -12,9 +12,21 @@ import {
 import { createOpusPacketizer, defaultGeminiVoice, extractSentences, geminiApiKey } from '../utils.ts';
 import { XIAOZHI_DEVICE_TOOL_BY_NAME, XIAOZHI_DEVICE_TOOLS } from '../device_tools.ts';
 import { classifyEmotion, heuristicEmotion } from '../emotion.ts';
-import { addConversation, createFirstMessage, createSystemPrompt, getChatHistory } from '../supabase.ts';
+import {
+    addConversation,
+    createFirstMessage,
+    createPersonalityInDb,
+    createSystemPrompt,
+    getChatHistory,
+    uploadPersonalityImage,
+} from '../supabase.ts';
 import { listPersonalities, resolvePersonality, setUserPersonality } from '../concierge.ts';
-import { pushGreetingImage } from '../image_gen.ts';
+import {
+    type GeneratedImage,
+    generateSceneImage,
+    pushGreetingImage,
+    stylizeImage,
+} from '../image_gen.ts';
 import { loadMemoryContext, rememberFact, saveSessionTranscript, searchMemories } from '../memory.ts';
 import type { TranscriptTurn } from '../memory.ts';
 
@@ -32,6 +44,7 @@ export const connectToGemini = async ({
     showImage,
     stylizePhoto,
     capturePhoto,
+    getLastCapturedPhoto,
     pushImage,
     conciergeMode,
 }: ProviderArgs) => {
@@ -186,6 +199,37 @@ export const connectToGemini = async ({
                     query: { type: Type.STRING, description: 'What to look for.' },
                 },
                 required: ['query'],
+            },
+        }, {
+            name: 'create_personality',
+            description:
+                'Create and save a brand-new AI personality for the user with an illustration on the screen. Call this only after you have gathered the name, character traits, desired Gemini voice, and privacy choice.',
+            parameters: {
+                type: Type.OBJECT,
+                properties: {
+                    name: {
+                        type: Type.STRING,
+                        description: 'The name or title of the character (e.g. "Brummi", "Captain Fluff").',
+                    },
+                    voice_name: {
+                        type: Type.STRING,
+                        description: 'The chosen Gemini Live voice name (e.g. "Aoede", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Zephyr", "Despina", "Callirrhoe").',
+                    },
+                    character_traits: {
+                        type: Type.STRING,
+                        description: 'Detailed description of the character\'s personality, manner of speaking, quirks, background and interests.',
+                    },
+                    visual_description: {
+                        type: Type.STRING,
+                        description: 'Visual description of the character or toy/object for generating the portrait illustration. No trademarked names.',
+                    },
+                    privacy: {
+                        type: Type.STRING,
+                        enum: ['private', 'public'],
+                        description: '"private" if only for this user, "public" if intended for all users after review.',
+                    },
+                },
+                required: ['name', 'voice_name', 'character_traits', 'visual_description', 'privacy'],
             },
         });
     }
@@ -356,6 +400,89 @@ export const connectToGemini = async ({
                 const facts = await searchMemories(user.user_id, String(fc.args?.query ?? ''));
                 response = { success: true, facts };
             } catch (e: unknown) {
+                response = { success: false, error: (e as Error).message };
+            }
+        } else if (fc.name === 'create_personality' && conciergeMode) {
+            try {
+                const name = String(fc.args?.name ?? '').trim();
+                const voice = String(fc.args?.voice_name ?? 'Puck').trim();
+                const traits = String(fc.args?.character_traits ?? '').trim();
+                const visualDesc = String(fc.args?.visual_description ?? name).trim();
+                const privacy = String(fc.args?.privacy ?? 'private').toLowerCase();
+                const isPublic = privacy === 'public';
+                const status: 'private' | 'tocheck' = isPublic ? 'tocheck' : 'private';
+
+                const cleanName = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'character';
+                const randSuffix = Math.random().toString(36).substring(2, 6);
+                const key = `user_${cleanName}_${randSuffix}`;
+
+                console.log(`create_personality: name="${name}" voice="${voice}" key="${key}" status="${status}"`);
+
+                const title = name;
+                const subtitle = `Dein Freund ${name}`;
+                const shortDescription = traits.length > 180 ? `${traits.substring(0, 177)}...` : traits;
+                const characterPrompt = `You are ${name}. ${traits}\n\nRespond in character, friendly, engaging, and in the user's language. Keep answers concise and conversational.`;
+                const voicePrompt = `Speak in character as ${name}, with appropriate tone and warmth.`;
+                const firstMessagePrompt = `Greet the user warmly as ${name} and say you are excited to be their new friend!`;
+
+                // 1. Generate portrait illustration
+                let generatedImg: GeneratedImage | null = null;
+                const lastPhoto = getLastCapturedPhoto ? getLastCapturedPhoto() : null;
+                if (lastPhoto) {
+                    try {
+                        console.log(`create_personality: generating portrait from camera photo for ${key}`);
+                        generatedImg = await stylizeImage(lastPhoto, `A charming storybook illustration of this character: ${visualDesc}`);
+                    } catch (err) {
+                        console.warn(`create_personality: stylizeImage failed, falling back to scene gen:`, err);
+                    }
+                }
+                if (!generatedImg) {
+                    console.log(`create_personality: generating portrait from text description for ${key}`);
+                    generatedImg = await generateSceneImage(`Portrait illustration of ${visualDesc}`);
+                }
+
+                // 2. Upload to Supabase Storage
+                let imageUrl: string | null = null;
+                if (generatedImg) {
+                    try {
+                        const jpegBytes = Uint8Array.from(atob(generatedImg.jpegBase64), (c) => c.charCodeAt(0));
+                        imageUrl = await uploadPersonalityImage(supabase, key, jpegBytes);
+                        console.log(`create_personality: uploaded portrait to Supabase Storage: ${imageUrl}`);
+                    } catch (uploadErr) {
+                        console.warn(`create_personality: failed to upload image to Supabase Storage:`, uploadErr);
+                    }
+                }
+
+                // 3. Push portrait to screen immediately
+                if (generatedImg && pushImage) {
+                    pushImage(generatedImg, 8000);
+                }
+
+                // 4. Persist in database
+                const newPersonality = await createPersonalityInDb(supabase, {
+                    key,
+                    title,
+                    subtitle,
+                    short_description: shortDescription,
+                    character_prompt: characterPrompt,
+                    voice_prompt: voicePrompt,
+                    first_message_prompt: firstMessagePrompt,
+                    oai_voice: voice,
+                    creator_id: user.user_id,
+                    status,
+                    image_url: imageUrl,
+                });
+                console.log(`create_personality: saved to DB id=${newPersonality.personality_id} key=${key} status=${status}`);
+
+                response = {
+                    success: true,
+                    name: title,
+                    key,
+                    status,
+                    result: `Successfully created ${title}! Its portrait is now displayed on the screen. Ask the user happily if they would like to switch to ${title} right now.`,
+                };
+            } catch (e: unknown) {
+                console.error(`create_personality failed:`, e);
                 response = { success: false, error: (e as Error).message };
             }
         } else if (deviceTool && callDeviceTool) {

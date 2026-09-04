@@ -9,6 +9,8 @@ if (!supabaseUrl || !supabaseKey) {
     throw new Error("SUPABASE_URL or SUPABASE_KEY is not set");
 }
 
+export const defaultSupabase = createClient(supabaseUrl, supabaseKey);
+
 export function getSupabaseClient(userJwt: string) {
     return createClient(supabaseUrl, supabaseKey, {
         global: {
@@ -249,3 +251,119 @@ export const getOpenAiApiKey = async (
 
     return decryptedKey;
 };
+
+export const PERSONALITY_IMAGE_BUCKET = Deno.env.get("PERSONALITY_IMAGE_BUCKET") ?? "personality-images";
+
+/**
+ * Upload a personality portrait JPEG to Supabase Storage.
+ * Auto-creates the bucket if it does not yet exist.
+ * Returns the public URL of the uploaded image.
+ */
+export async function uploadPersonalityImage(
+    supabase: SupabaseClient,
+    key: string,
+    jpegBytes: Uint8Array,
+): Promise<string> {
+    const filename = `${key}.jpeg`;
+    const doUpload = () =>
+        supabase.storage.from(PERSONALITY_IMAGE_BUCKET).upload(filename, jpegBytes, {
+            contentType: "image/jpeg",
+            upsert: true,
+        });
+
+    let { error } = await doUpload();
+    if (error && /bucket not found/i.test(error.message)) {
+        console.log(`Creating public storage bucket: ${PERSONALITY_IMAGE_BUCKET}`);
+        const created = await supabase.storage.createBucket(PERSONALITY_IMAGE_BUCKET, {
+            public: true,
+        });
+        if (created.error && !/already exists/i.test(created.error.message)) {
+            console.warn(`createBucket warning: ${created.error.message}`);
+        }
+        ({ error } = await doUpload());
+    }
+
+    if (error) {
+        throw new Error(`uploadPersonalityImage failed: ${error.message}`);
+    }
+
+    const { data } = supabase.storage.from(PERSONALITY_IMAGE_BUCKET).getPublicUrl(filename);
+    return data.publicUrl;
+}
+
+/**
+ * Download a personality portrait JPEG from Supabase Storage if available.
+ */
+export async function downloadPersonalityImage(
+    key: string,
+    supabase?: SupabaseClient,
+): Promise<Uint8Array | null> {
+    const client = supabase ?? defaultSupabase;
+    const filename = `${key}.jpeg`;
+    try {
+        const { data, error } = await client.storage.from(PERSONALITY_IMAGE_BUCKET).download(filename);
+        if (error || !data) return null;
+        return new Uint8Array(await data.arrayBuffer());
+    } catch {
+        return null;
+    }
+}
+
+export interface CreatePersonalityParams {
+    key: string;
+    title: string;
+    subtitle: string;
+    short_description: string;
+    character_prompt: string;
+    voice_prompt: string;
+    first_message_prompt?: string;
+    oai_voice: string;
+    provider?: ModelProvider;
+    is_doctor?: boolean;
+    is_story?: boolean;
+    is_child_voice?: boolean;
+    pitch_factor?: number;
+    creator_id: string | null;
+    status: 'private' | 'tocheck' | 'public';
+    image_url?: string | null;
+}
+
+/**
+ * Insert a newly generated personality into the database.
+ */
+export async function createPersonalityInDb(
+    supabase: SupabaseClient,
+    params: CreatePersonalityParams,
+): Promise<IPersonality> {
+    const row = {
+        key: params.key,
+        title: params.title,
+        subtitle: params.subtitle,
+        short_description: params.short_description,
+        character_prompt: params.character_prompt,
+        voice_prompt: params.voice_prompt,
+        first_message_prompt: params.first_message_prompt ?? '',
+        oai_voice: params.oai_voice,
+        provider: params.provider ?? 'gemini',
+        is_doctor: params.is_doctor ?? false,
+        is_story: params.is_story ?? false,
+        is_child_voice: params.is_child_voice ?? false,
+        pitch_factor: params.pitch_factor ?? 1.0,
+        creator_id: params.creator_id,
+        status: params.status,
+        image_url: params.image_url ?? null,
+    };
+
+    const { data, error } = await supabase
+        .from('personalities')
+        .insert(row)
+        .select('*')
+        .single();
+
+    if (error) {
+        throw new Error(`createPersonalityInDb failed: ${error.message}`);
+    }
+
+    return data as IPersonality;
+}
+

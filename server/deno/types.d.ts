@@ -103,6 +103,8 @@ declare global {
         creator_id: string | null;
         pitch_factor: number;
         first_message_prompt: string;
+        status?: 'private' | 'tocheck' | 'public';
+        image_url?: string | null;
     }
 
     interface ILanguage {
@@ -262,6 +264,8 @@ declare global {
         // model (photo as reference), and pushes the result to the screen.
         // Resolves once the photo is captured; generation continues async.
         stylizePhoto?: (instruction: string) => Promise<string>;
+        // When present, returns the most recently captured camera photo from this connection (if any).
+        getLastCapturedPhoto?: () => Uint8Array | null;
         // When present (XIAOZHI with a screen), the session pushes a
         // time-of-day greeting image of the active character on start and
         // after a personality switch (structurally a GeneratedImage).

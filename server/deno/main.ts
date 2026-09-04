@@ -16,6 +16,7 @@ import { greetingTimeInstruction } from './daypart.ts';
 import {
     createFirstMessage,
     createSystemPrompt,
+    downloadPersonalityImage,
     getChatHistory,
     getSupabaseClient,
 } from './supabase.ts';
@@ -157,8 +158,12 @@ function normalizeMacAddress(macAddress: string | null | undefined): string {
 }
 
 function getPersonalityImageUrl(personality: IPersonality | undefined): string | null {
-    if (!personality?.key || personality.creator_id) {
+    if (!personality?.key) {
         return null;
+    }
+
+    if (personality.image_url) {
+        return personality.image_url;
     }
 
     return `${personalityImageBaseUrl}/personality/${encodeURIComponent(personality.key)}.jpeg`;
@@ -179,7 +184,7 @@ function getAudiobookContent() {
 }
 
 async function getPersonalityImageBase64(personality: IPersonality | undefined): Promise<string | null> {
-    if (!personality?.key || personality.creator_id) {
+    if (!personality?.key) {
         return null;
     }
 
@@ -192,8 +197,11 @@ async function getPersonalityImageBase64(personality: IPersonality | undefined):
         const imagePath = new URL(`./personality/${filename}`, import.meta.url);
         const data = await Deno.readFile(imagePath);
         return Buffer.from(data).toString('base64');
-    } catch (error) {
-        console.warn('Failed to inline personality image:', filename, error);
+    } catch {
+        const data = await downloadPersonalityImage(personality.key);
+        if (data) {
+            return Buffer.from(data).toString('base64');
+        }
         return null;
     }
 }
@@ -222,6 +230,17 @@ async function handlePersonalityImage(req: Request, pathname: string) {
             },
         });
     } catch {
+        const key = filename.replace(/\.jpeg$/, '');
+        const data = await downloadPersonalityImage(key);
+        if (data) {
+            return new Response(req.method === 'HEAD' ? null : (data as unknown as BodyInit), {
+                status: 200,
+                headers: {
+                    'content-type': 'image/jpeg',
+                    'cache-control': 'public, max-age=86400',
+                },
+            });
+        }
         return jsonResponse(404, { error: 'Personality image not found' });
     }
 }
@@ -424,6 +443,7 @@ async function handleConnection(
         showImage?: (description: string) => void;
         stylizePhoto?: (instruction: string) => Promise<string>;
         capturePhoto?: () => Promise<Uint8Array>;
+        getLastCapturedPhoto?: () => Uint8Array | null;
         // Pushes a ready image to the device screen (XIAOZHI). Used for the
         // time-of-day greeting image on session start / personality switch.
         pushImage?: (img: GeneratedImage, durationMs?: number) => void;
@@ -518,6 +538,7 @@ async function handleConnection(
         showImage: opts.showImage,
         stylizePhoto: opts.stylizePhoto,
         capturePhoto: opts.capturePhoto,
+        getLastCapturedPhoto: opts.getLastCapturedPhoto,
         pushImage: opts.pushImage,
         conciergeMode,
     };
@@ -657,6 +678,8 @@ async function handleXiaozhiWebSocket(req: Request) {
         visionToken: XIAOZHI_VISION_TOKEN,
     });
 
+    let lastCapturedPhoto: Uint8Array | null = null;
+
     socket.onopen = () => {
         void handleConnection(ws, {
             user: authedUser,
@@ -676,11 +699,14 @@ async function handleXiaozhiWebSocket(req: Request) {
                 const trigger = ws.callDeviceTool('self.camera.take_photo', {
                     question: 'capture for realtime session',
                 });
-                return await Promise.race([
+                const jpeg = await Promise.race([
                     photoPromise,
                     trigger.then(() => photoPromise),
                 ]);
+                lastCapturedPhoto = jpeg;
+                return jpeg;
             },
+            getLastCapturedPhoto: () => lastCapturedPhoto,
             // Photo -> AI-restyled picture: trigger the camera, grab the upload
             // at the vision endpoint, stylize via Gemini in the background, and
             // push the result to the screen.
@@ -694,6 +720,7 @@ async function handleXiaozhiWebSocket(req: Request) {
                     photoPromise,
                     trigger.then(() => photoPromise),
                 ]);
+                lastCapturedPhoto = jpeg;
                 const durationMs = Number(Deno.env.get('XIAOZHI_IMAGE_DURATION_MS') ?? '5000');
                 stylizeImage(jpeg, instruction)
                     .then((img) => {
