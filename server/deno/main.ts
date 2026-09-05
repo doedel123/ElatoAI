@@ -22,7 +22,6 @@ import {
 } from './supabase.ts';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isDev } from './utils.ts';
-import { openDebugRecorder } from './debug_audio.ts';
 import { createConciergePrompt } from './concierge.ts';
 import { loadMemoryContext } from './memory.ts';
 import { connectToOpenAI } from './models/openai.ts';
@@ -447,8 +446,6 @@ async function handleConnection(
         // Pushes a ready image to the device screen (XIAOZHI). Used for the
         // time-of-day greeting image on session start / personality switch.
         pushImage?: (img: GeneratedImage, durationMs?: number) => void;
-        // Label for DEBUG_AUDIO recordings (e.g. the device MAC).
-        debugLabel?: string;
         // XIAOZHI entry point: start into the concierge agent instead of the
         // DB-assigned personality (kill switch: CONCIERGE_MODE=off).
         concierge?: boolean;
@@ -488,12 +485,6 @@ async function handleConnection(
     }
     const personalityImageBase64 = await getPersonalityImageBase64(user.personality);
 
-    // DEBUG_AUDIO=1: record the uplink PCM exactly as this provider gets it.
-    const connectionPcmFile = await openDebugRecorder(
-        XIAOZHI_PROVIDER_UPLINK_RATE[provider] ?? 24000,
-        `${opts.debugLabel ?? user.device?.mac_address ?? 'device'}_${provider}`,
-    );
-
     // send user details to client
     // when DEV_MODE is true, we send the default values 100, false, false
     // The XIAOZHI adapter has no use for this ELATO-specific message.
@@ -527,7 +518,6 @@ async function handleConnection(
     const providerArgs: ProviderArgs = {
         ws,
         payload,
-        connectionPcmFile,
         firstMessage,
         systemPrompt,
         closeHandler,
@@ -689,7 +679,6 @@ async function handleXiaozhiWebSocket(req: Request) {
             sendAuthMessage: false,
             emitTextEvents: true,
             concierge: conciergeOn,
-            debugLabel: deviceMac ?? undefined,
             requestPhoto: (question) => ws.requestPhoto(question),
             callDeviceTool: (name, callArgs) => ws.callDeviceTool(name, callArgs),
             // Raw JPEG for the multimodal path: trigger the camera, grab the

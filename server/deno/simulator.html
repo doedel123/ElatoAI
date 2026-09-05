@@ -1384,6 +1384,19 @@
                     log('HELLO', `← Received server hello (session_id: ${sessionId})`, 'all');
                     setScreenState('READY');
                     document.getElementById('screen-subtitles').innerText = 'Online. Ready for voice or camera interaction.';
+                    // Continuous mode starts streaming in ws.onopen, before this
+                    // hello arrives. listen.start needs the session_id, so it
+                    // could not be sent then; without it the server gates every
+                    // audio frame and the assistant never hears the user.
+                    if (isStreamingAudio) {
+                        ws.send(JSON.stringify({
+                            type: 'listen',
+                            session_id: sessionId,
+                            state: 'start',
+                            mode: 'auto'
+                        }));
+                        log('AUDIO', '→ listen.start sent after hello (continuous mode)', 'audio');
+                    }
                     break;
 
                 case 'stt':

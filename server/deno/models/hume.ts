@@ -7,7 +7,6 @@ import { createOpusPacketizer, humeApiKey, downsamplePcm, extractPcmFromWav, boo
 export const connectToHume = ({
     ws,
     payload,
-    connectionPcmFile,
     firstMessage,
     systemPrompt,
     closeHandler,
@@ -232,7 +231,7 @@ export const connectToHume = ({
     });
 
     // Handle messages from ESP32 client
-    const messageHandler = async (data: RawData, isBinary: boolean) => {
+    const messageHandler = (data: RawData, isBinary: boolean) => {
         try {
             if (isBinary) {
                 // Handle audio data from ESP32
@@ -245,11 +244,6 @@ export const connectToHume = ({
 
                 if (isConnected) {
                     humeWs.send(JSON.stringify(audioMessage));
-                }
-
-                // Write to debug file if enabled
-                if (connectionPcmFile) {
-                    await connectionPcmFile.write(data as Buffer);
                 }
             }
         } catch (error) {
@@ -276,11 +270,6 @@ export const connectToHume = ({
         await closeHandler();
         opus.close();
         humeWs.close();
-
-        if (connectionPcmFile) {
-            connectionPcmFile.close();
-            console.log("Closed debug audio file");
-        }
     });
 
     // Wait for Hume connection to be established

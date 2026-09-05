@@ -57,7 +57,6 @@ function resamplePcm16Mono(
 export const connectToElevenLabs = async ({
     ws,
     payload,
-    connectionPcmFile,
     firstMessage,
     closeHandler,
 }: ProviderArgs) => {
@@ -81,13 +80,9 @@ export const connectToElevenLabs = async ({
     let elevenOutputSampleRate = 24000;
 
     // Handle messages from ESP32 ws client.
-    const handleClientMessage = async (data: any, isBinary: boolean) => {
+    const handleClientMessage = (data: any, isBinary: boolean) => {
         try {
             if (isBinary) {
-                if (connectionPcmFile) {
-                    await connectionPcmFile.write(data);
-                }
-
                 // Send audio to ElevenLabs using the expected input sample rate.
                 if (isElevenLabsConnected && elevenLabsConnection) {
                     const sourceBuffer = Buffer.from(data);
@@ -163,11 +158,6 @@ export const connectToElevenLabs = async ({
         await closeHandler();
         opus.close();
         elevenLabsConnection?.close();
-
-        if (connectionPcmFile) {
-            connectionPcmFile.close();
-            console.log('Closed debug audio file.');
-        }
     });
 
     try {

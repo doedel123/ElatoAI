@@ -9,7 +9,6 @@ const XAI_REALTIME_URL = "wss://api.x.ai/v1/realtime";
 export const connectToGrok = async ({
     ws,
     payload,
-    connectionPcmFile,
     firstMessage,
     systemPrompt,
     closeHandler,
@@ -170,14 +169,10 @@ export const connectToGrok = async ({
         ws.send(JSON.stringify({ type: "server", msg: "RESPONSE.ERROR" }));
     });
 
-    const messageHandler = async (data: RawData, isBinary: boolean) => {
+    const messageHandler = (data: RawData, isBinary: boolean) => {
         if (isBinary) {
             const base64Data = (data as Buffer).toString("base64");
             grokWs.send(JSON.stringify({ type: "input_audio_buffer.append", audio: base64Data }));
-
-            if (connectionPcmFile) {
-                await connectionPcmFile.write(data as Buffer);
-            }
             return;
         }
 
@@ -217,9 +212,6 @@ export const connectToGrok = async ({
         await closeHandler();
         opus.close();
         grokWs.close();
-        if (connectionPcmFile) {
-            connectionPcmFile.close();
-        }
     });
 
     return new Promise<void>((resolve, reject) => {

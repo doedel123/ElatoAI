@@ -33,7 +33,6 @@ import type { TranscriptTurn } from '../memory.ts';
 export const connectToGemini = async ({
     ws,
     payload,
-    connectionPcmFile,
     firstMessage,
     systemPrompt,
     closeHandler,
@@ -764,10 +763,6 @@ export const connectToGemini = async ({
                 // Handle binary audio data from ESP32
                 const base64Data = data.toString('base64');
 
-                if (connectionPcmFile) {
-                    connectionPcmFile.write(data);
-                }
-
                 // Send audio to Gemini
                 geminiSession?.sendRealtimeInput({
                     audio: {
@@ -792,9 +787,5 @@ export const connectToGemini = async ({
         await closeHandler();
         opus.close();
         geminiSession?.close();
-        if (connectionPcmFile) {
-            connectionPcmFile.close();
-            console.log('Closed debug audio file.');
-        }
     });
 };

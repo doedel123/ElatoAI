@@ -3,7 +3,7 @@ import type { RawData } from "npm:@types/ws";
 import { RealtimeClient } from "../realtime/client.js";
 import { RealtimeUtils } from "../realtime/utils.js";
 import { addConversation, getDeviceInfo } from "../supabase.ts";
-import { createOpusPacketizer, extractSentences, isDev, openaiApiKey, defaultOpenAIVoice } from "../utils.ts";
+import { createOpusPacketizer, extractSentences, openaiApiKey, defaultOpenAIVoice } from "../utils.ts";
 import { XIAOZHI_DEVICE_TOOLS } from "../device_tools.ts";
 import { classifyEmotion, heuristicEmotion } from "../emotion.ts";
 
@@ -32,7 +32,6 @@ const sendFirstMessage = (client: RealtimeClient, firstMessage: string) => {
 export const connectToOpenAI = async ({
     ws,
     payload,
-    connectionPcmFile,
     firstMessage,
     systemPrompt,
     closeHandler,
@@ -390,7 +389,7 @@ export const connectToOpenAI = async ({
     // We need to queue data waiting for the OpenAI connection
     const messageQueue: Array<{ data: RawData; isBinary: boolean }> = [];
 
-    const messageHandler = async (data: any, isBinary: boolean) => {
+    const messageHandler = (data: any, isBinary: boolean) => {
         try {
             let event;
 
@@ -404,13 +403,6 @@ export const connectToOpenAI = async ({
                     type: "input_audio_buffer.append",
                     audio: base64Data,
                 };
-                // Write the raw PCM data to file for debugging if enabled.
-                // Also write the base64 data to a separate file
-                if (isDev) {
-                    if (connectionPcmFile) {
-                        await connectionPcmFile.write(data);
-                    }
-                }
                 client.realtime.send(event.type, event);
             } else { // Manual VAD
                 const message = JSON.parse(data.toString("utf-8"));
@@ -485,12 +477,6 @@ export const connectToOpenAI = async ({
         await closeHandler();
         opus.close();
         client.disconnect();
-        if (isDev) {
-            if (connectionPcmFile) {
-                connectionPcmFile.close();
-                console.log(`Closed debug audio file.`);
-            }
-        }
     });
 
     // Connect to the OpenAI Realtime API
