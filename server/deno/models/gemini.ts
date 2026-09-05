@@ -30,6 +30,16 @@ import {
 import { loadMemoryContext, rememberFact, saveSessionTranscript, searchMemories } from '../memory.ts';
 import type { TranscriptTurn } from '../memory.ts';
 
+// Prebuilt Gemini Live voices accepted for user-created personalities. Keep in
+// sync with the voice list in createConciergePrompt (concierge.ts).
+const GEMINI_LIVE_VOICES = [
+    'Aoede', 'Kore', 'Leda', 'Callirrhoe', 'Despina', 'Erinome', 'Vindemiatrix',
+    'Fenrir', 'Charon', 'Orus', 'Algenib', 'Rasalgethi', 'Achernar', 'Alnilam',
+    'Puck', 'Zephyr', 'Sadachbia', 'Achird', 'Algieba', 'Autonoe', 'Enceladus',
+    'Gacrux', 'Iapetus', 'Laomedeia', 'Pulcherrima', 'Sadaltager', 'Schedar',
+    'Sulafat', 'Umbriel', 'Zubenelgenubi',
+];
+
 export const connectToGemini = async ({
     ws,
     payload,
@@ -404,15 +414,25 @@ export const connectToGemini = async ({
         } else if (fc.name === 'create_personality' && conciergeMode) {
             try {
                 const name = String(fc.args?.name ?? '').trim();
-                const voice = String(fc.args?.voice_name ?? 'Puck').trim();
                 const traits = String(fc.args?.character_traits ?? '').trim();
                 const visualDesc = String(fc.args?.visual_description ?? name).trim();
                 const privacy = String(fc.args?.privacy ?? 'private').toLowerCase();
                 const isPublic = privacy === 'public';
                 const status: 'private' | 'tocheck' = isPublic ? 'tocheck' : 'private';
+                if (!name || !traits) {
+                    throw new Error('name and character_traits are required');
+                }
+                // The model sometimes invents voice names; an unknown one makes
+                // the Live session fail on switch, so only accept known voices.
+                const requestedVoice = String(fc.args?.voice_name ?? '').trim();
+                const voice = GEMINI_LIVE_VOICES.find((v) => v.toLowerCase() === requestedVoice.toLowerCase()) ??
+                    defaultGeminiVoice;
+                if (voice !== requestedVoice) {
+                    console.warn(`create_personality: unknown voice "${requestedVoice}", using ${voice}`);
+                }
 
                 const cleanName = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'character';
-                const randSuffix = Math.random().toString(36).substring(2, 6);
+                const randSuffix = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
                 const key = `user_${cleanName}_${randSuffix}`;
 
                 console.log(`create_personality: name="${name}" voice="${voice}" key="${key}" status="${status}"`);
@@ -424,7 +444,27 @@ export const connectToGemini = async ({
                 const voicePrompt = `Speak in character as ${name}, with appropriate tone and warmth.`;
                 const firstMessagePrompt = `Greet the user warmly as ${name} and say you are excited to be their new friend!`;
 
-                // 1. Generate portrait illustration
+                // 1. Persist first: a denied insert must not cost an image, and
+                //    the character must exist before anything is shown for it.
+                //    Portraits are resolved by key via /personality/<key>.jpeg,
+                //    so image_url stays null.
+                const newPersonality = await createPersonalityInDb({
+                    key,
+                    title,
+                    subtitle,
+                    short_description: shortDescription,
+                    character_prompt: characterPrompt,
+                    voice_prompt: voicePrompt,
+                    first_message_prompt: firstMessagePrompt,
+                    oai_voice: voice,
+                    creator_id: user.user_id,
+                    status,
+                    image_url: null,
+                });
+                console.log(`create_personality: saved to DB id=${newPersonality.personality_id} key=${key} status=${status}`);
+
+                // 2. Portrait: from the last camera photo if there is one, else
+                //    from the description. Failures here are not fatal.
                 let generatedImg: GeneratedImage | null = null;
                 const lastPhoto = getLastCapturedPhoto ? getLastCapturedPhoto() : null;
                 if (lastPhoto) {
@@ -436,49 +476,41 @@ export const connectToGemini = async ({
                     }
                 }
                 if (!generatedImg) {
-                    console.log(`create_personality: generating portrait from text description for ${key}`);
-                    generatedImg = await generateSceneImage(`Portrait illustration of ${visualDesc}`);
-                }
-
-                // 2. Upload to Supabase Storage
-                let imageUrl: string | null = null;
-                if (generatedImg) {
                     try {
-                        const jpegBytes = Uint8Array.from(atob(generatedImg.jpegBase64), (c) => c.charCodeAt(0));
-                        imageUrl = await uploadPersonalityImage(supabase, key, jpegBytes);
-                        console.log(`create_personality: uploaded portrait to Supabase Storage: ${imageUrl}`);
-                    } catch (uploadErr) {
-                        console.warn(`create_personality: failed to upload image to Supabase Storage:`, uploadErr);
+                        console.log(`create_personality: generating portrait from text description for ${key}`);
+                        generatedImg = await generateSceneImage(`Portrait illustration of ${visualDesc}`);
+                    } catch (err) {
+                        console.warn(`create_personality: portrait generation failed, continuing without image:`, err);
                     }
                 }
 
-                // 3. Push portrait to screen immediately
-                if (generatedImg && pushImage) {
-                    pushImage(generatedImg, 8000);
+                // 3. Show it and store it.
+                let portraitSaved = false;
+                if (generatedImg) {
+                    if (pushImage) pushImage(generatedImg, 8000);
+                    try {
+                        const jpegBytes = Uint8Array.from(atob(generatedImg.jpegBase64), (c) => c.charCodeAt(0));
+                        await uploadPersonalityImage(key, jpegBytes);
+                        portraitSaved = true;
+                        console.log(`create_personality: portrait stored for ${key}`);
+                    } catch (uploadErr) {
+                        console.warn(`create_personality: failed to store portrait:`, uploadErr);
+                    }
                 }
 
-                // 4. Persist in database
-                const newPersonality = await createPersonalityInDb(supabase, {
-                    key,
-                    title,
-                    subtitle,
-                    short_description: shortDescription,
-                    character_prompt: characterPrompt,
-                    voice_prompt: voicePrompt,
-                    first_message_prompt: firstMessagePrompt,
-                    oai_voice: voice,
-                    creator_id: user.user_id,
-                    status,
-                    image_url: imageUrl,
-                });
-                console.log(`create_personality: saved to DB id=${newPersonality.personality_id} key=${key} status=${status}`);
-
+                const portraitNote = generatedImg
+                    ? (portraitSaved
+                        ? 'Its portrait is appearing on the screen now.'
+                        : 'Its portrait is appearing on the screen now, but could not be saved permanently.')
+                    : 'No portrait could be generated this time.';
                 response = {
                     success: true,
                     name: title,
                     key,
                     status,
-                    result: `Successfully created ${title}! Its portrait is now displayed on the screen. Ask the user happily if they would like to switch to ${title} right now.`,
+                    portrait_saved: portraitSaved,
+                    result: `Successfully created ${title}! ${portraitNote} Ask the user happily if they would like to switch to ${title} right now; ` +
+                        `if yes, call switch_personality with name "${key}".`,
                 };
             } catch (e: unknown) {
                 console.error(`create_personality failed:`, e);

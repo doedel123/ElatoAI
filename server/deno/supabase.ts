@@ -11,6 +11,30 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const defaultSupabase = createClient(supabaseUrl, supabaseKey);
 
+/**
+ * Server-only privileged client (bypasses RLS). Needed for writes the device
+ * session cannot do as `anon`: inserting user-created personalities and
+ * storing their portraits in the private `personality-images` bucket.
+ * Never hand this client to anything that takes user input as a filter.
+ */
+const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+export const serviceSupabase: SupabaseClient | null = serviceRoleKey
+    ? createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } })
+    : null;
+
+let warnedNoServiceKey = false;
+function privilegedClient(): SupabaseClient {
+    if (serviceSupabase) return serviceSupabase;
+    if (!warnedNoServiceKey) {
+        warnedNoServiceKey = true;
+        console.warn(
+            "SUPABASE_SERVICE_ROLE_KEY is not set — personality creation and portrait storage " +
+                "fall back to the anon client and will be blocked by RLS",
+        );
+    }
+    return defaultSupabase;
+}
+
 export function getSupabaseClient(userJwt: string) {
     return createClient(supabaseUrl, supabaseKey, {
         global: {
@@ -255,40 +279,22 @@ export const getOpenAiApiKey = async (
 export const PERSONALITY_IMAGE_BUCKET = Deno.env.get("PERSONALITY_IMAGE_BUCKET") ?? "personality-images";
 
 /**
- * Upload a personality portrait JPEG to Supabase Storage.
- * Auto-creates the bucket if it does not yet exist.
- * Returns the public URL of the uploaded image.
+ * Store a personality portrait JPEG in the private `personality-images` bucket
+ * (created by migration 20260904120000_add_personality_status.sql). Portraits
+ * are served to devices through the server's /personality/<key>.jpeg endpoint,
+ * which reads them back with `downloadPersonalityImage`, so no public URL and
+ * no storage policies are needed.
  */
 export async function uploadPersonalityImage(
-    supabase: SupabaseClient,
     key: string,
     jpegBytes: Uint8Array,
-): Promise<string> {
-    const filename = `${key}.jpeg`;
-    const doUpload = () =>
-        supabase.storage.from(PERSONALITY_IMAGE_BUCKET).upload(filename, jpegBytes, {
-            contentType: "image/jpeg",
-            upsert: true,
-        });
-
-    let { error } = await doUpload();
-    if (error && /bucket not found/i.test(error.message)) {
-        console.log(`Creating public storage bucket: ${PERSONALITY_IMAGE_BUCKET}`);
-        const created = await supabase.storage.createBucket(PERSONALITY_IMAGE_BUCKET, {
-            public: true,
-        });
-        if (created.error && !/already exists/i.test(created.error.message)) {
-            console.warn(`createBucket warning: ${created.error.message}`);
-        }
-        ({ error } = await doUpload());
-    }
-
+): Promise<void> {
+    const { error } = await privilegedClient().storage
+        .from(PERSONALITY_IMAGE_BUCKET)
+        .upload(`${key}.jpeg`, jpegBytes, { contentType: "image/jpeg", upsert: false });
     if (error) {
         throw new Error(`uploadPersonalityImage failed: ${error.message}`);
     }
-
-    const { data } = supabase.storage.from(PERSONALITY_IMAGE_BUCKET).getPublicUrl(filename);
-    return data.publicUrl;
 }
 
 /**
@@ -298,7 +304,7 @@ export async function downloadPersonalityImage(
     key: string,
     supabase?: SupabaseClient,
 ): Promise<Uint8Array | null> {
-    const client = supabase ?? defaultSupabase;
+    const client = supabase ?? privilegedClient();
     const filename = `${key}.jpeg`;
     try {
         const { data, error } = await client.storage.from(PERSONALITY_IMAGE_BUCKET).download(filename);
@@ -329,12 +335,15 @@ export interface CreatePersonalityParams {
 }
 
 /**
- * Insert a newly generated personality into the database.
+ * Insert a newly generated personality into the database. Runs with the
+ * service-role client: the device session is `anon`, and the personalities
+ * INSERT policy only allows `authenticated`. `creator_id` and `status` are
+ * always server-assigned by the caller, never taken from the model.
  */
 export async function createPersonalityInDb(
-    supabase: SupabaseClient,
     params: CreatePersonalityParams,
 ): Promise<IPersonality> {
+    const supabase = privilegedClient();
     const row = {
         key: params.key,
         title: params.title,
