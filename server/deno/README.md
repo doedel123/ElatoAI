@@ -3,6 +3,34 @@
 
 For more details, visit the [Elato Deno Server Docs](https://www.elatoai.com/docs/blog/edge-server).
 
+## Gemini Live
+
+Concierge und direkte Gemini-Personalities verwenden standardmäßig `gemini-3.8-live`.
+`GEMINI_LIVE_MODEL` kann das Modell serverseitig überschreiben; beim Deployment einen
+bereits gesetzten alten Wert ebenfalls auf `gemini-3.8-live` ändern oder entfernen.
+Beim Personality-Wechsel bleibt das ausgewählte Modell erhalten.
+
+Die Tool-Deklarationen setzen ausdrücklich `behavior: BLOCKING`, damit Gesichtserkennung,
+Memories und Personality-Wechsel abgeschlossen sind, bevor das Modell weiterantwortet.
+Sprachausgabe und beide Transkriptionen bleiben aktiviert. Die bevorzugte Sprache steht
+im Systemprompt; `speechConfig.languageCode` wird nicht gesendet, da native Audiomodelle
+diesen Parameter nicht unterstützen. Es werden auch keine Thinking-, Affective-Dialog-
+oder Proactivity-Einstellungen gesendet. Die Variante `gemini-3.8-live-extended-thinking`
+benötigt eine andere Tool- und Turn-Verarbeitung und wird hier nicht unterstützt.
+
+Referenzen: [Gemini 3.8 Live und Migration](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-live),
+[Live-Audio und Sprache](https://ai.google.dev/gemini-api/docs/live-api/capabilities#change-voice-and-language).
+
+Die Integrationstests prüfen die tatsächlich vom Google-SDK serialisierten Setup- und
+Begrüßungsnachrichten mit einem simulierten Transport. Nur ImageScripts WASM-Dateien
+werden beim Modulimport von `deno.land` geladen; Gemini wird nicht aufgerufen:
+
+```sh
+cd server/deno
+deno test --allow-env --allow-read=node_modules --allow-net=deno.land models/gemini_live_test.ts
+deno check main.ts
+```
+
 ## Gesichtserkennung im xiaozhi-Pfad
 
 Optional erkennt der Server einzelne Personen über Amazon Rekognition. Unterstützt sind

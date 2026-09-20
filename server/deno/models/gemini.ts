@@ -1,6 +1,7 @@
 import { Buffer } from 'node:buffer';
 import type { WebSocketServer as _WebSocketServer } from 'npm:@types/ws';
 import {
+    Behavior,
     EndSensitivity,
     type FunctionDeclaration,
     GoogleGenAI,
@@ -101,11 +102,9 @@ export const connectToGemini = async ({
 
     // Initialize Google GenAI
     const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-    // Concierge needs google_search grounding, which requires gemini-3.1+.
-    // A concierge connection keeps this model for the whole session, including
-    // after a switch into a personality (only prompt and voice change there).
-    const model = Deno.env.get('GEMINI_LIVE_MODEL') ??
-        (conciergeMode ? 'gemini-3.1-flash-live-preview' : 'gemini-2.5-flash-native-audio-preview-09-2025');
+    // Use the same stable Live model for concierge and direct personalities.
+    // A connection retains its selected model across personality switches.
+    const model = Deno.env.get('GEMINI_LIVE_MODEL')?.trim() || 'gemini-3.8-live';
     console.log(`Gemini Live model: ${model}${conciergeMode ? ' (concierge)' : ''}`);
     // Multimodal function-response parts (camera photo inside the tool
     // response) are verified on gemini-3.x live models only.
@@ -268,21 +267,6 @@ export const connectToGemini = async ({
         }
     }
 
-    // Pin the session language (ASR + TTS). Without this the transcription
-    // guesses per utterance and skews English ("Geist" -> "guys"), and the
-    // mis-heard text then pollutes chat history and Memory Bank.
-    const LANG_TO_BCP47: Record<string, string> = {
-        de: 'de-DE', en: 'en-US', es: 'es-ES', fr: 'fr-FR', it: 'it-IT',
-        pt: 'pt-BR', nl: 'nl-NL', pl: 'pl-PL', tr: 'tr-TR', ru: 'ru-RU',
-        ja: 'ja-JP', ko: 'ko-KR', zh: 'cmn-CN', hi: 'hi-IN', ar: 'ar-XA',
-    };
-    const rawLang = (user.language_code ?? user.language?.code ?? '').trim();
-    const sessionLanguage = rawLang.includes('-')
-        ? rawLang
-        : LANG_TO_BCP47[rawLang.toLowerCase()] ?? '';
-    if (sessionLanguage) console.log(`Gemini Live language: ${sessionLanguage}`);
-    else console.warn(`Gemini Live language: none resolvable (language_code=${JSON.stringify(rawLang)}) — ASR will guess`);
-
     // Web search is a concierge ability. Inside a character it also competes
     // with the picture tools — with grounding on, the model answers instead of
     // calling show_image. Set GEMINI_PERSONALITY_SEARCH=on to keep it anyway.
@@ -301,7 +285,16 @@ export const connectToGemini = async ({
         const tools: any[] = [];
         // google_search grounding (needs gemini-3.1+).
         if (opts.grounding) tools.push({ googleSearch: {} });
-        if (functionDeclarations.length) tools.push({ functionDeclarations });
+        if (functionDeclarations.length) {
+            // Gemini 3.8 defaults to asynchronous tools. Identity, memory and
+            // personality changes must finish before the model continues.
+            tools.push({
+                functionDeclarations: functionDeclarations.map((tool) => ({
+                    ...tool,
+                    behavior: Behavior.BLOCKING,
+                })),
+            });
+        }
         return {
             responseModalities: [Modality.AUDIO],
             systemInstruction: prompt + imageNudge(),
@@ -311,7 +304,8 @@ export const connectToGemini = async ({
                         voiceName: voice,
                     },
                 },
-                ...(sessionLanguage ? { languageCode: sessionLanguage } : {}),
+                // Native audio models infer language; the system prompt sets
+                // the user's preferred language. languageCode is unsupported.
             },
             realtimeInputConfig: {
                 automaticActivityDetection: {
@@ -783,6 +777,7 @@ export const connectToGemini = async ({
         // Send first message if available
         geminiSession?.sendClientContent({
             turns: [{ role: 'user', parts: [{ text: greeting }] }],
+            turnComplete: true,
         });
     }
 
