@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import type { WebSocketServer as _WebSocketServer } from 'npm:@types/ws';
 import {
     EndSensitivity,
+    type FunctionDeclaration,
     GoogleGenAI,
     LiveConnectConfig,
     LiveServerMessage,
@@ -29,6 +30,7 @@ import {
 } from '../image_gen.ts';
 import { loadMemoryContext, rememberFact, saveSessionTranscript, searchMemories } from '../memory.ts';
 import type { TranscriptTurn } from '../memory.ts';
+import { FACE_INSTRUCTIONS, FACE_TOOLS } from '../faces.ts';
 
 // Prebuilt Gemini Live voices accepted for user-created personalities. Keep in
 // sync with the voice list in createConciergePrompt (concierge.ts).
@@ -56,6 +58,7 @@ export const connectToGemini = async ({
     getLastCapturedPhoto,
     pushImage,
     conciergeMode,
+    faces,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
     const voiceName = user.personality?.oai_voice ?? defaultGeminiVoice;
@@ -243,6 +246,28 @@ export const connectToGemini = async ({
         });
     }
 
+    if (faces) {
+        for (const spec of FACE_TOOLS) {
+            const existing = functionDeclarations.findIndex((tool) => tool.name === spec.name);
+            if (existing >= 0) functionDeclarations.splice(existing, 1);
+            functionDeclarations.push({
+                name: spec.name,
+                description: spec.description,
+                // The locked @google/genai SDK supports parameters, not parametersJsonSchema.
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: Object.fromEntries(Object.entries(spec.parameters.properties).map(
+                        ([name, param]) => [name, {
+                            ...param,
+                            type: param.type === 'boolean' ? Type.BOOLEAN : Type.STRING,
+                        }],
+                    )),
+                    required: spec.parameters.required,
+                },
+            } satisfies FunctionDeclaration);
+        }
+    }
+
     // Pin the session language (ASR + TTS). Without this the transcription
     // guesses per utterance and skews English ("Geist" -> "guys"), and the
     // mis-heard text then pollutes chat history and Memory Bank.
@@ -308,10 +333,12 @@ export const connectToGemini = async ({
     const transcript: TranscriptTurn[] = [];
     let lastMemorySaveLength = 0;
     const maybeSaveMemories = (force = false) => {
-        if (!conciergeMode) return;
+        if (!conciergeMode && !faces) return;
+        const scope = faces ? faces.memoryScope : user.user_id;
+        if (!scope) return;
         if (!force && transcript.length - lastMemorySaveLength < 20) return;
         lastMemorySaveLength = transcript.length;
-        void saveSessionTranscript(user.user_id, [...transcript]);
+        void saveSessionTranscript(scope, [...transcript]);
     };
 
     // Set by switch_personality; consumed after the tool response is sent so
@@ -331,7 +358,14 @@ export const connectToGemini = async ({
         let responseParts: Array<{ inlineData: { mimeType: string; data: string } }> | undefined;
         console.log(`Gemini tool call: ${fc.name}`);
         const deviceTool = XIAOZHI_DEVICE_TOOL_BY_NAME[fc.name ?? ''];
-        if (fc.name === 'take_photo' && capturePhoto) {
+        if (faces && FACE_TOOLS.some((tool) => tool.name === fc.name)) {
+            if (['recognize_person', 'enroll_person', 'forget_person'].includes(fc.name ?? '')) {
+                maybeSaveMemories(true);
+                transcript.length = 0;
+                lastMemorySaveLength = 0;
+            }
+            response = await faces.call(fc.name!, fc.args ?? {});
+        } else if (fc.name === 'take_photo' && capturePhoto) {
             // Multimodal path: push the raw JPEG straight into the Live session
             // so the model looks at the picture itself (no separate VLM).
             try {
@@ -402,8 +436,8 @@ export const connectToGemini = async ({
                 response = { success: false, error: (e as Error).message };
             }
         } else if (fc.name === 'remember' && conciergeMode) {
-            void rememberFact(user.user_id, String(fc.args?.fact ?? ''));
-            response = { success: true, result: 'Stored.' };
+            const saved = await rememberFact(user.user_id, String(fc.args?.fact ?? ''));
+            response = { success: saved, result: saved ? 'Submitted to memory.' : 'Memory unavailable; not saved.' };
         } else if (fc.name === 'recall' && conciergeMode) {
             try {
                 const facts = await searchMemories(user.user_id, String(fc.args?.query ?? ''));
@@ -585,6 +619,8 @@ export const connectToGemini = async ({
         try {
             console.log('Processing Gemini turns');
             while (geminiSession) {
+                const turnMemoryScope = faces ? faces.memoryScope : user.user_id;
+                const turnPersonId = faces?.person?.person_id ?? null;
                 let turnDone = false;
                 let utteranceStarted = false;
                 let outputTranscriptionText = '';
@@ -682,10 +718,11 @@ export const connectToGemini = async ({
                     msg: 'RESPONSE.COMPLETE',
                 }));
 
-                if (inputTranscriptionText.trim()) {
+                const sameSpeaker = !faces || turnMemoryScope === faces.memoryScope;
+                if (sameSpeaker && turnMemoryScope && inputTranscriptionText.trim()) {
                     transcript.push({ role: 'user', content: inputTranscriptionText.trim() });
                 }
-                if (outputTranscriptionText.trim()) {
+                if (sameSpeaker && turnMemoryScope && outputTranscriptionText.trim()) {
                     transcript.push({ role: 'assistant', content: outputTranscriptionText.trim() });
                 }
                 maybeSaveMemories();
@@ -696,6 +733,7 @@ export const connectToGemini = async ({
                     'user',
                     inputTranscriptionText,
                     user,
+                    faces ? (sameSpeaker ? turnPersonId : null) : undefined,
                 );
 
                 // Add assistant transcription to supabase
@@ -704,6 +742,7 @@ export const connectToGemini = async ({
                     'assistant',
                     outputTranscriptionText,
                     user,
+                    faces ? (sameSpeaker ? turnPersonId : null) : undefined,
                 );
             }
         } catch (error) {
@@ -762,14 +801,18 @@ export const connectToGemini = async ({
         // generation runs while the new Live session is being set up.
         if (pushImage) pushGreetingImage(target, pushImage);
         const [chatHistory, memoryContext] = await Promise.all([
-            getChatHistory(supabase, user.user_id, target.key ?? null, false),
+            faces ? Promise.resolve([]) : getChatHistory(supabase, user.user_id, target.key ?? null, false),
             // The characters share the concierge's Memory Bank, so they know
             // what the user told James (and each other) earlier.
-            loadMemoryContext(user.user_id),
+            faces ? Promise.resolve('') : loadMemoryContext(user.user_id),
         ]);
         const prompt = createSystemPrompt(chatHistory, payload) +
-            (memoryContext ? `\n\n${memoryContext}` : '');
-        const greeting = createFirstMessage(payload);
+            (memoryContext ? `\n\n${memoryContext}` : '') +
+            (faces ? '\n\n' + FACE_INSTRUCTIONS : '');
+        const greeting = faces
+            ? 'Continue with the current speaker in your new character. Current speaker data: ' +
+                JSON.stringify(await faces.context()) + '. Greet neutrally if unidentified.'
+            : createFirstMessage(payload);
         const voice = target.oai_voice ?? defaultGeminiVoice;
         await startSession(
             buildConfig(prompt, voice, { grounding: searchInPersonalities }),

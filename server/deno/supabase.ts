@@ -201,6 +201,15 @@ export const createSystemPrompt = (
     payload: IPayload,
 ): string => {
     const { user } = payload;
+    if (payload.speakerRecognition) {
+        // Do not embed account-owner age/interests or mixed account chat history.
+        return getCommonPromptTemplate('', user, localTimeLine()) + `
+You are ${user.personality?.title ?? 'a friendly character'} inside a talking toy.
+The account owner's name is ${JSON.stringify(user.supervisee_name)}. The current speaker's
+identity and stated relationship come only from the recognition tools. Speak naturally and
+concisely; keep stories child-friendly and interactive. Never assume the account owner is speaking.
+${user.personality?.is_story ? 'Tell an imaginative adventure in character, pausing for choices every few sentences.' : ''}`;
+    }
     const chatHistoryString = composeChatHistory(chatHistory);
     console.log("chatHistoryString", chatHistoryString);
     // Local wall-clock time (the payload timestamp is UTC, which reads wrong
@@ -233,6 +242,7 @@ export const addConversation = async (
     speaker: "user" | "assistant",
     content: string,
     user: IUser,
+    personId?: string | null,
 ): Promise<void> => {
     const { error } = await supabase.from("conversations").insert({
         role: speaker,
@@ -240,6 +250,7 @@ export const addConversation = async (
         user_id: user.user_id,
         is_sensitive: false,
         personality_key: user.personality?.key,
+        ...(personId !== undefined ? { person_id: personId } : {}),
     });
 
     if (error) {
@@ -375,4 +386,3 @@ export async function createPersonalityInDb(
 
     return data as IPersonality;
 }
-

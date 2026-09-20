@@ -244,8 +244,8 @@ export async function saveSessionTranscript(
 }
 
 /** Store one explicit fact (the `remember` tool). */
-export async function rememberFact(userId: string, fact: string): Promise<void> {
-    if (!memoryEnabled()) return;
+export async function rememberFact(userId: string, fact: string): Promise<boolean> {
+    if (!memoryEnabled()) return false;
     try {
         await api('memories:generate', {
             scope: { user_id: userId },
@@ -260,7 +260,9 @@ export async function rememberFact(userId: string, fact: string): Promise<void> 
             revision_labels: { source: 'explicit' },
         });
         console.log(`Memory: stored explicit fact for user=${userId}`);
+        return true;
     } catch (e) {
         console.warn('Memory: remember failed:', (e as Error).message);
+        return false;
     }
 }

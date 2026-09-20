@@ -39,8 +39,8 @@ type CloseHandler = (code: number, reason: string) => void;
  */
 class FramePacer {
     private queue: Uint8Array[] = [];
-    private timer: number | null = null;
-    private stopTimer: number | null = null;
+    private timer: ReturnType<typeof setTimeout> | null = null;
+    private stopTimer: ReturnType<typeof setTimeout> | null = null;
     private startTime = 0;
     private playheadMs = 0;
     private speaking = false;
@@ -204,7 +204,7 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
     // draw compete with Opus playback), so images go out at tts:stop. Only
     // the newest image is kept; an older pending one is superseded.
     private pendingImage: string | null = null;
-    private imageTimer: number | null = null;
+    private imageTimer: ReturnType<typeof setTimeout> | null = null;
     // Images are held until this wall-clock time (set at tts:stop / abort).
     private imageQuietUntil = 0;
     private readonly visionUrl?: string;
@@ -214,7 +214,7 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
     private mcpId = 0;
     private readonly pendingMcp = new Map<
         number,
-        { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: number }
+        { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
     >();
 
     constructor(
@@ -520,6 +520,17 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
         if (message.type !== "server") return;
 
         switch (message.msg) {
+            case "FACE_STATUS":
+                this.rawSend(JSON.stringify({
+                    type: "custom",
+                    session_id: this.sessionId,
+                    payload: {
+                        action: "face_status",
+                        status: message.status,
+                        person: message.person ?? null,
+                    },
+                }));
+                break;
             case "RESPONSE.CREATED":
                 this.pacer.startUtterance();
                 break;

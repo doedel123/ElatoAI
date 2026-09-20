@@ -15,6 +15,8 @@ declare global {
         user: IUser;
         supabase: SupabaseClient;
         timestamp: string;
+        // Account profile is not the current speaker when face recognition is enabled.
+        speakerRecognition?: boolean;
     }
 
     interface IDevice {
@@ -226,6 +228,7 @@ declare global {
     ) => OpusPacketizer;
 
     interface ProviderArgs {
+        faces?: import('./faces.ts').FaceSession;
         ws: ClientWebSocket;
         payload: IPayload;
         firstMessage: string;
@@ -245,7 +248,7 @@ declare global {
         // Raw-JPEG variant of requestPhoto: triggers the camera and resolves
         // with the uploaded bytes. Multimodal providers (Gemini Live) push the
         // image straight into the audio session instead of describing it.
-        capturePhoto?: () => Promise<Uint8Array>;
+        capturePhoto?: (retainForReuse?: boolean) => Promise<Uint8Array>;
         // Concierge mode (XIAOZHI entry): Gemini-only session with memory,
         // google_search grounding and personality list/switch tools.
         conciergeMode?: boolean;

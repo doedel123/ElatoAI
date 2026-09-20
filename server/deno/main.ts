@@ -19,7 +19,10 @@ import {
     downloadPersonalityImage,
     getChatHistory,
     getSupabaseClient,
+    serviceSupabase,
 } from './supabase.ts';
+import { createFaceSession } from './face_backend.ts';
+import { FACE_INSTRUCTIONS } from './faces.ts';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isDev } from './utils.ts';
 import { createConciergePrompt } from './concierge.ts';
@@ -75,17 +78,17 @@ const photoChannel = typeof BroadcastChannel !== 'undefined'
     ? new BroadcastChannel('xiaozhi-device-photos')
     : null;
 photoChannel?.addEventListener('message', (e: MessageEvent) => {
-    const { mac, jpegB64 } = (e.data ?? {}) as { mac?: string; jpegB64?: string };
+    const { mac, jpegB64, captureId } = (e.data ?? {}) as { mac?: string; jpegB64?: string; captureId?: string };
     if (!mac || !jpegB64) return;
-    const pending = pendingPhotoCaptures.get(mac);
+    const pending = pendingPhotoCaptures.get(captureId ? `${mac}:${captureId}` : mac);
     if (pending) {
         console.log(`XIAOZHI photo relay: received ${mac} photo from another isolate`);
         pending.resolve(new Uint8Array(Buffer.from(jpegB64, 'base64')));
     }
 });
 
-function awaitDevicePhoto(mac: string, timeoutMs = 25000): Promise<Uint8Array> {
-    const key = normalizeMacAddress(mac);
+function awaitDevicePhoto(mac: string, timeoutMs = 25000, captureId?: string): Promise<Uint8Array> {
+    const key = normalizeMacAddress(mac) + (captureId ? `:${captureId}` : '');
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
             pendingPhotoCaptures.delete(key);
@@ -441,7 +444,7 @@ async function handleConnection(
         callDeviceTool?: (name: string, args: Record<string, unknown>) => Promise<string>;
         showImage?: (description: string) => void;
         stylizePhoto?: (instruction: string) => Promise<string>;
-        capturePhoto?: () => Promise<Uint8Array>;
+        capturePhoto?: (retainForReuse?: boolean) => Promise<Uint8Array>;
         getLastCapturedPhoto?: () => Uint8Array | null;
         // Pushes a ready image to the device screen (XIAOZHI). Used for the
         // time-of-day greeting image on session start / personality switch.
@@ -454,6 +457,21 @@ async function handleConnection(
     const { user, supabase } = payload;
 
     const conciergeMode = opts.concierge === true;
+    const selectedProvider = resolveProvider(user, conciergeMode);
+    const faces = Deno.env.get('FACE_RECOGNITION_ENABLED') === 'true' && opts.capturePhoto &&
+            ['gemini', 'openai'].includes(selectedProvider)
+        ? createFaceSession(user.user_id, () => opts.capturePhoto!(false), serviceSupabase)
+        : undefined;
+    if (faces) payload.speakerRecognition = true;
+    if (opts.emitTextEvents) {
+        if (faces) {
+            faces.subscribeStatus((state) => ws.send(JSON.stringify({
+                type: 'server', msg: 'FACE_STATUS', ...state,
+            })));
+        } else {
+            ws.send(JSON.stringify({ type: 'server', msg: 'FACE_STATUS', status: 'disabled', person: null }));
+        }
+    }
 
     let firstMessage: string;
     let systemPrompt: string;
@@ -461,7 +479,7 @@ async function handleConnection(
     if (conciergeMode) {
         // Concierge entry: general Gemini Live agent with Memory Bank context
         // instead of the DB personality. Chat history is replaced by memory.
-        const memoryContext = await loadMemoryContext(user.user_id);
+        const memoryContext = faces ? '' : await loadMemoryContext(user.user_id);
         systemPrompt = createConciergePrompt(payload) +
             (memoryContext ? `\n\n${memoryContext}` : '');
         firstMessage =
@@ -469,7 +487,7 @@ async function handleConnection(
             greetingTimeInstruction();
         provider = resolveProvider(user, true);
     } else {
-        const chatHistory = await getChatHistory(
+        const chatHistory = faces ? [] : await getChatHistory(
             supabase,
             user.user_id,
             user.personality?.key ?? null,
@@ -482,6 +500,11 @@ async function handleConnection(
         if (!user.personality?.provider) {
             console.warn('Personality has no provider configured; falling back to openai');
         }
+    }
+    if (faces) {
+        systemPrompt += '\n\n' + FACE_INSTRUCTIONS;
+        firstMessage = 'Call recognize_person before greeting. Follow its result: greet a known person by name, ' +
+            'ask an unknown person their name, or greet neutrally if recognition is unavailable. ' + greetingTimeInstruction();
     }
     const personalityImageBase64 = await getPersonalityImageBase64(user.personality);
 
@@ -510,12 +533,14 @@ async function handleConnection(
     }
 
     // Common close handler for cleanup
-    const closeHandler = async () => {
-        // Add any common cleanup logic here
+    const closeHandler = () => {
+        faces?.close();
+        return Promise.resolve();
     };
 
     // Common provider args
     const providerArgs: ProviderArgs = {
+        faces,
         ws,
         payload,
         firstMessage,
@@ -683,16 +708,17 @@ async function handleXiaozhiWebSocket(req: Request) {
             callDeviceTool: (name, callArgs) => ws.callDeviceTool(name, callArgs),
             // Raw JPEG for the multimodal path: trigger the camera, grab the
             // upload at the vision endpoint, hand the bytes to the provider.
-            capturePhoto: async () => {
-                const photoPromise = awaitDevicePhoto(deviceMac);
+            capturePhoto: async (retainForReuse = true) => {
+                const captureId = crypto.randomUUID();
+                const photoPromise = awaitDevicePhoto(deviceMac, 25000, captureId);
                 const trigger = ws.callDeviceTool('self.camera.take_photo', {
-                    question: 'capture for realtime session',
+                    question: `capture for realtime session:${captureId}`,
                 });
                 const jpeg = await Promise.race([
                     photoPromise,
                     trigger.then(() => photoPromise),
                 ]);
-                lastCapturedPhoto = jpeg;
+                if (retainForReuse) lastCapturedPhoto = jpeg;
                 return jpeg;
             },
             getLastCapturedPhoto: () => lastCapturedPhoto,
@@ -876,24 +902,25 @@ async function handleXiaozhiVision(req: Request) {
     // Photo->stylize flow: a waiter registered by stylize_photo consumes this
     // upload; skip the describe step and confirm to the realtime model.
     const macKey = normalizeMacAddress(deviceMac);
-    const pending = pendingPhotoCaptures.get(macKey);
+    const captureId = question.match(/^capture for realtime session:([0-9a-f-]{36})$/)?.[1];
+    const pending = pendingPhotoCaptures.get(captureId ? `${macKey}:${captureId}` : macKey);
     if (pending) {
         console.log(`XIAOZHI vision: ${deviceMac} photo captured for stylize (${jpeg.length}B)`);
         pending.resolve(jpeg);
         return jsonResponse(200, {
             success: true,
-            result: 'Photo captured. The stylized picture is being generated and will appear on the screen shortly.',
+            result: 'Photo captured for the current request.',
         });
     }
     // Server-triggered capture, but the waiter lives in another isolate:
     // relay the photo over the BroadcastChannel instead of describing it.
     const isServerCapture = question.startsWith('stylize:') ||
-        question === 'capture for realtime session';
-    if (isServerCapture && photoChannel) {
+        question === 'capture for realtime session' || !!captureId;
+    if (isServerCapture) {
         console.log(
             `XIAOZHI vision: ${deviceMac} relaying capture to waiter isolate (${jpeg.length}B, q="${question}")`,
         );
-        photoChannel.postMessage({ mac: macKey, jpegB64: Buffer.from(jpeg).toString('base64') });
+        photoChannel?.postMessage({ mac: macKey, captureId, jpegB64: Buffer.from(jpeg).toString('base64') });
         return jsonResponse(200, {
             success: true,
             result: 'Photo captured. The picture is being processed and will be ready shortly.',

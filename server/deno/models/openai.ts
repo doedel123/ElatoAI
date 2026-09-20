@@ -6,6 +6,7 @@ import { addConversation, getDeviceInfo } from "../supabase.ts";
 import { createOpusPacketizer, extractSentences, openaiApiKey, defaultOpenAIVoice } from "../utils.ts";
 import { XIAOZHI_DEVICE_TOOLS } from "../device_tools.ts";
 import { classifyEmotion, heuristicEmotion } from "../emotion.ts";
+import { FACE_TOOLS } from "../faces.ts";
 
 const sendFirstMessage = (client: RealtimeClient, firstMessage: string) => {
     const event = {
@@ -41,6 +42,7 @@ export const connectToOpenAI = async ({
     callDeviceTool,
     showImage,
     stylizePhoto,
+    faces,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
 
@@ -81,6 +83,13 @@ export const connectToOpenAI = async ({
     // Instantiate new client
     console.log(`Connecting with key "${openaiApiKey?.slice(0, 3)}..."`);
     const client = new RealtimeClient({ apiKey: openaiApiKey });
+
+    if (faces) {
+        for (const spec of FACE_TOOLS) {
+            client.addTool({ type: 'function', ...spec }, (args: Record<string, unknown>) =>
+                faces.call(spec.name, args));
+        }
+    }
 
     // ADD TOOL CALLS HERE
     client.addTool(
@@ -287,6 +296,9 @@ export const connectToOpenAI = async ({
                 "assistant",
                 event.transcript,
                 user,
+                // Transcription and identity tool events overlap in Realtime. Keep these
+                // logs unassigned rather than attaching a handover turn to the old speaker.
+                faces ? null : undefined,
             );
         } else if (event.type === "input_audio_buffer.committed") {
             ws.send(JSON.stringify({ type: "server", msg: "AUDIO.COMMITTED" }));
@@ -370,6 +382,7 @@ export const connectToOpenAI = async ({
                             "user",
                             event.transcript,
                             user,
+                            faces ? null : undefined,
                         );
                         break;
                 }

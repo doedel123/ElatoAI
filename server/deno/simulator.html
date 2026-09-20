@@ -562,6 +562,55 @@
             background: var(--accent-green);
         }
 
+        /* Recognized speaker */
+        .face-status-header {
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .face-status-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 5px 9px;
+            border-radius: 20px;
+            background: rgba(100, 116, 139, 0.15);
+            color: var(--text-muted);
+        }
+
+        .face-status-badge.known {
+            color: var(--accent-green);
+            background: rgba(16, 185, 129, 0.15);
+        }
+
+        .face-status-badge.pending {
+            color: var(--accent-amber);
+            background: rgba(245, 158, 11, 0.15);
+        }
+
+        .face-status-badge.error {
+            color: var(--accent-rose);
+            background: rgba(244, 63, 94, 0.15);
+        }
+
+        .face-person-name {
+            font-size: 20px;
+            font-weight: 700;
+            overflow-wrap: anywhere;
+        }
+
+        .face-person-relationship {
+            margin-top: 5px;
+            font-size: 13px;
+            color: var(--accent-cyan);
+            overflow-wrap: anywhere;
+        }
+
+        .face-status-hint {
+            font-size: 12px;
+            line-height: 1.6;
+            color: var(--text-muted);
+        }
+
         /* Camera / Webcam Column */
         .webcam-card {
             position: relative;
@@ -926,6 +975,18 @@
                     </div>
                 </div>
             </div>
+
+            <section class="card" aria-labelledby="face-panel-title">
+                <div class="card-header face-status-header">
+                    <span id="face-panel-title" class="card-title">👤 Erkannte Person</span>
+                    <span id="face-status" class="face-status-badge">Nicht verbunden</span>
+                </div>
+                <div role="status" aria-live="polite" aria-atomic="true">
+                    <div id="face-name" class="face-person-name">Noch keine Person erkannt</div>
+                    <div id="face-relationship" class="face-person-relationship" hidden></div>
+                    <p id="face-hint" class="face-status-hint">Verbinde den Simulator, um den Erkennungsstatus zu sehen.</p>
+                </div>
+            </section>
 
             <!-- Device Configuration -->
             <div class="card">
@@ -1374,6 +1435,7 @@
             const label = document.getElementById('conn-text');
             badge.className = `connection-status ${state}`;
             label.innerText = text;
+            renderFaceStatus({ status: state === 'disconnected' ? 'disconnected' : 'waiting' });
         }
 
         // Handle JSON text frames
@@ -1527,6 +1589,10 @@
 
         // Handle Custom pushed actions (AI Image Generation)
         function handleCustomMessage(payload) {
+            if (payload?.action === 'face_status') {
+                renderFaceStatus(payload);
+                return;
+            }
             if (payload?.action === 'show_image' && payload.data) {
                 const imgSrc = `data:image/jpeg;base64,${payload.data}`;
                 log('IMAGE', `🖼️ AI Image received (${payload.width || 320}x${payload.height || 240})`, 'images');
@@ -1535,6 +1601,37 @@
                 document.getElementById('image-overlay').classList.add('active');
                 addGalleryThumb(imgSrc, 'AI Generated');
             }
+        }
+
+        function renderFaceStatus(payload) {
+            const states = {
+                disconnected: ['Nicht verbunden', '', 'Verbinde den Simulator, um den Erkennungsstatus zu sehen.'],
+                waiting: ['Warte auf Status', '', 'Der Server hat noch keinen Erkennungsstatus gemeldet.'],
+                disabled: ['Deaktiviert', '', 'Gesichtserkennung ist für diese Verbindung nicht aktiviert.'],
+                unidentified: ['Bereit', '', 'Noch keine aktuelle Erkennung. Die Erkennung wird im Gespräch gestartet.'],
+                recognizing: ['Wird erkannt …', 'pending', 'Das aktuelle Kamerabild wird geprüft.'],
+                known: ['Erkannt', 'known', 'Diese Person ist der aktuelle Gesprächspartner.'],
+                unknown: ['Unbekanntes Gesicht', 'pending', 'Name und Beziehung können im Gespräch angegeben und nach Zustimmung gespeichert werden.'],
+                enrolling: ['Wird gespeichert …', 'pending', 'Das bestätigte Gesicht wird dem Account hinzugefügt.'],
+                no_face: ['Kein Gesicht', '', 'Im Bild wurde kein Gesicht gefunden. Schau in die Kamera.'],
+                multiple_faces: ['Mehrere Gesichter', 'pending', 'Bitte nur eine Person vor die Kamera stellen.'],
+                uncertain: ['Nicht eindeutig', 'pending', 'Die Person konnte nicht sicher zugeordnet werden.'],
+                unavailable: ['Nicht verfügbar', 'error', 'Die Erkennung konnte nicht abgeschlossen werden. Das Gespräch kann weitergehen.'],
+                forgotten: ['Profil entfernt', '', 'Das Gesicht und das Personenprofil wurden entfernt.'],
+                closed: ['Nicht verbunden', '', 'Die Erkennungssitzung wurde beendet.'],
+            };
+            const person = payload.status === 'known' && typeof payload.person?.name === 'string'
+                && payload.person.name.trim() ? payload.person : null;
+            const status = payload.status === 'known' && !person ? 'unavailable' : payload.status;
+            const [label, tone, hint] = Object.hasOwn(states, status) ? states[status] : states.unavailable;
+            const badge = document.getElementById('face-status');
+            badge.textContent = label;
+            badge.className = `face-status-badge ${tone}`;
+            document.getElementById('face-name').textContent = person ? person.name : 'Noch keine Person erkannt';
+            const relationship = document.getElementById('face-relationship');
+            relationship.textContent = person && typeof person.relationship === 'string' ? person.relationship : '';
+            relationship.hidden = !relationship.textContent;
+            document.getElementById('face-hint').textContent = hint;
         }
 
         function closeImageOverlay() {

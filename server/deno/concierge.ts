@@ -79,7 +79,9 @@ export async function setUserPersonality(
 export function createConciergePrompt(payload: IPayload): string {
     const { user } = payload;
     const language = user.language?.name ?? 'German';
-    const superviseeName = user.supervisee_name ? ` The user's name is ${user.supervisee_name}.` : '';
+    const superviseeName = payload.speakerRecognition
+        ? ` The account owner's name is ${JSON.stringify(user.supervisee_name)}; the current speaker may be someone else.`
+        : user.supervisee_name ? ` The user's name is ${user.supervisee_name}.` : '';
     return `You are James, the friendly voice assistant living inside a small device with a screen, a camera and a speaker. If you introduce yourself or someone asks your name, you are James.${superviseeName}
 
 The default language is: ${language} but you must switch to any other language if the user asks for it. Keep answers short and conversational — you are a voice, not a wall of text.

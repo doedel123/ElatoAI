@@ -1,0 +1,75 @@
+/// <reference path="./types.d.ts" />
+import { ok, strictEqual } from 'node:assert';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { createConciergePrompt } from './concierge.ts';
+
+// No live backend is used by these prompt/persistence-contract tests.
+Deno.env.set('SUPABASE_URL', 'http://127.0.0.1:54321');
+Deno.env.set('SUPABASE_KEY', 'test-key');
+Deno.env.delete('SUPABASE_SERVICE_ROLE_KEY');
+const { createSystemPrompt, addConversation } = await import('./supabase.ts');
+
+function payload(story = false): IPayload {
+    return {
+        user: {
+            user_id: 'account-id',
+            supervisee_name: 'Amelie',
+            supervisee_age: 7,
+            supervisee_persona: 'ACCOUNT_PRIVATE_INTEREST',
+            user_info: { user_type: 'user' },
+            language: { name: 'German' },
+            personality: {
+                key: 'test',
+                title: 'Story Friend',
+                character_prompt: 'Speak playfully.',
+                voice_prompt: 'Soft voice.',
+                is_story: story,
+            },
+        } as IUser,
+        supabase: {} as SupabaseClient,
+        timestamp: new Date().toISOString(),
+        speakerRecognition: true,
+    };
+}
+
+Deno.test('concierge treats Amelie as account owner, not the current speaker', () => {
+    const prompt = createConciergePrompt(payload());
+    ok(prompt.includes('account owner'));
+    strictEqual(prompt.includes("The user's name is Amelie"), false);
+    const legacy = payload();
+    legacy.speakerRecognition = false;
+    ok(createConciergePrompt(legacy).includes("The user's name is Amelie"));
+});
+
+Deno.test('personality and story prompts exclude account history, age and private interests', () => {
+    for (const story of [false, true]) {
+        const p = payload(story);
+        const history = [{ content: 'ACCOUNT_PRIVATE_HISTORY' }] as IConversation[];
+        const prompt = createSystemPrompt(history, p);
+        ok(prompt.includes('Speak playfully.'));
+        ok(prompt.includes('Soft voice.'));
+        ok(prompt.includes('German'));
+        ok(prompt.includes('account owner'));
+        strictEqual(prompt.includes('ACCOUNT_PRIVATE_HISTORY'), false);
+        strictEqual(prompt.includes('ACCOUNT_PRIVATE_INTEREST'), false);
+        strictEqual(prompt.includes('7 years old'), false);
+        strictEqual(prompt.includes('name is: Amelie'), false);
+    }
+});
+
+Deno.test('conversation persistence keeps account ownership and optional speaker ID separate', async () => {
+    const rows: Record<string, unknown>[] = [];
+    const db = {
+        from: () => ({
+            insert: (row: Record<string, unknown>) => {
+                rows.push(row);
+                return Promise.resolve({ error: null });
+            },
+        }),
+    } as unknown as SupabaseClient;
+    await addConversation(db, 'user', 'Hello', payload().user);
+    await addConversation(db, 'user', 'Hello', payload().user, 'leo-id');
+    strictEqual('person_id' in rows[0], false); // Disabled feature needs no migration.
+    strictEqual(rows[1].person_id, 'leo-id');
+    strictEqual(rows[1].user_id, 'account-id');
+});
