@@ -67,6 +67,35 @@ Die Kamera muss das MCP-Tool `self.camera.take_photo` unterstützen. Die vorhand
 sendet die übergebene `question` im Upload zurück; darin steht nun die eindeutige Fotoauftrags-ID.
 Es ist keine Firmwareänderung erforderlich.
 
+### Fehlersuche bei fehlender Erkennung
+
+- `Face recognition: disabled` im Deno-Log nennt den Grund. In Deno Deploy muss
+  `FACE_RECOGNITION_ENABLED` exakt `true` im Runtime-Kontext **Production** sein;
+  ein lokaler `.env`-Wert oder ein nur für Build/Development gesetzter Wert reicht nicht.
+- `Face recognition: enabled` bestätigt, dass die Personenerkennung in der Sitzung aktiv ist.
+  Eine anschließende Meldung `Face recognition configuration missing` nennt fehlende
+  Variablen, ohne Schlüsselwerte auszugeben. Der Simulator protokolliert die Statusereignisse
+  unter `FACE` im Kamera-/Vision-Log und zeigt den Status unter „Erkannte Person“.
+- `take_photo` und der Kamera-Test beschreiben Bilder; sie registrieren keine Personen.
+  Für die Registrierung müssen zuerst `recognize_person` und nach ausdrücklicher Zustimmung
+  `enroll_person` aufgerufen werden. Ein genannter Name allein wird nicht als Zustimmung gewertet.
+- Die Migration muss in der verwendeten Supabase-Datenbank angewendet sein, damit
+  `public.known_people` vorhanden ist. Profile werden dort mit Namen und Beziehung gespeichert;
+  persönliche Langzeiterinnerungen liegen in der separat konfigurierten Vertex Memory Bank.
+- `Face tool recognize_person failed` nennt jetzt `stage`, `source`, `code` und einen
+  bereinigten Hinweis. `stage: camera` bedeutet Aufnahme-/Uploadfehler; bei
+  `source: aws` bzw. `source: supabase` ist der Fehler nach der Fotoübergabe aufgetreten.
+  Schlüssel, Fotos und rohe Fehlermeldungen der Anbieter werden nicht protokolliert.
+  `42501` bedeutet fehlende Datenbankrechte: für `SUPABASE_SERVICE_ROLE_KEY` den
+  Service-Role-/Secret-Key des richtigen Projekts verwenden, keinen Anon-/Publishable-Key.
+  `PGRST205` oder `42P01` weist auf die fehlende Tabelle/Migration hin.
+- Bei `AccessDeniedException` müssen IAM-Policy und `AWS_REGION` übereinstimmen.
+  Die Beispiel-Policy unten erlaubt Collections nur in `eu-central-1`; mit `eu-west-1`
+  kann deshalb `DetectFaces` funktionieren, während `SearchFacesByImage` abgewiesen wird.
+  Der Server liest `AWS_REGION` aus seiner Umgebung, nicht aus der lokalen AWS-CLI-Konfiguration.
+  Eine fehlende Collection (`ResourceNotFoundException`) ist vor der ersten Registrierung
+  normal: der Server prüft dann `known_people` und legt die Collection erst beim Einlernen an.
+
 Benötigte AWS-IAM-Rechte (AWS-Account-ID und Region ersetzen):
 
 ```json
@@ -129,7 +158,7 @@ AWS-Referenzen: [IndexFaces](https://docs.aws.amazon.com/rekognition/latest/APIR
 
 ```sh
 cd server/deno
-deno test --allow-env --allow-read=node_modules faces_test.ts face_backend_test.ts speaker_prompts_test.ts
+deno test --allow-env --allow-read=node_modules --allow-net=deno.land faces_test.ts face_backend_test.ts face_errors_test.ts speaker_prompts_test.ts models/gemini_live_test.ts
 deno check main.ts
 ```
 

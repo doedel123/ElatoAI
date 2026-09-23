@@ -3,6 +3,7 @@ import type { RekognitionClient } from 'npm:@aws-sdk/client-rekognition@3.1136.0
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { faceCollectionId, RekognitionFaceBackend } from './face_backend.ts';
 import type { KnownPerson } from './faces.ts';
+import { faceErrorSummary } from './face_errors.ts';
 
 const account = '00000000-0000-0000-0000-000000000001';
 const person: KnownPerson = {
@@ -19,7 +20,7 @@ const notFound = () =>
 
 function fixture(
     responses: unknown[],
-    options: { insertError?: boolean; lookupError?: boolean; person?: KnownPerson | null } = {},
+    options: { insertError?: unknown; lookupError?: unknown; person?: KnownPerson | null } = {},
 ) {
     const awsCalls: { name: string; input: Record<string, unknown> }[] = [];
     const dbCalls: { name: string; args: unknown[] }[] = [];
@@ -63,6 +64,23 @@ function fixture(
 Deno.test('collection ID is derived from a validated account ID', () => {
     strictEqual(faceCollectionId(account), `elato_${account}`);
     throws(() => faceCollectionId('../other-account'));
+});
+
+Deno.test('missing AWS_REGION is diagnosed before any AWS request', async () => {
+    const originalRegion = Deno.env.get('AWS_REGION');
+    Deno.env.delete('AWS_REGION');
+    try {
+        const backend = new RekognitionFaceBackend(account, {} as SupabaseClient);
+        await rejects(() => backend.search(image), (error: unknown) => {
+            const summary = faceErrorSummary(error, 'recognition');
+            strictEqual(summary.code, 'MISSING_AWS_CONFIGURATION');
+            strictEqual(summary.message, 'AWS_REGION is missing.');
+            return true;
+        });
+    } finally {
+        if (originalRegion === undefined) Deno.env.delete('AWS_REGION');
+        else Deno.env.set('AWS_REGION', originalRegion);
+    }
 });
 
 Deno.test('no face, multiple faces and poor quality never search a collection', async () => {
@@ -169,4 +187,35 @@ Deno.test('IndexFaces quality rejection does not insert a profile', async () => 
     const f = fixture([oneFace, notFound(), {}, { FaceRecords: [] }]);
     await rejects(() => f.backend.enroll(image, 'Leo', ''), /quality/);
     strictEqual(f.dbCalls.some((c) => c.name === 'insert'), false);
+});
+
+for (const code of ['42501', 'PGRST205']) {
+    Deno.test(`new account preserves Supabase ${code} instead of offering enrollment`, async () => {
+        const f = fixture([oneFace, notFound()], {
+            lookupError: { code, message: 'PRIVATE_DB_DETAIL' },
+        });
+        await rejects(() => f.backend.search(image), (error: unknown) => {
+            const summary = faceErrorSummary(error, 'recognition');
+            strictEqual(summary.source, 'supabase');
+            strictEqual(summary.code, code);
+            strictEqual(JSON.stringify(summary).includes('PRIVATE_DB_DETAIL'), false);
+            return true;
+        });
+        strictEqual(f.awsCalls.some((c) => c.name === 'IndexFacesCommand'), false);
+    });
+}
+
+Deno.test('enrollment rollback retains the original database failure code', async () => {
+    const f = fixture([
+        oneFace,
+        notFound(),
+        {},
+        { FaceRecords: [{ Face: { FaceId: 'new-face' } }] },
+        {},
+    ], { insertError: { code: '42501', message: 'PRIVATE_DB_DETAIL' } });
+    await rejects(() => f.backend.enroll(image, 'Leo', ''), (error: unknown) => {
+        strictEqual(faceErrorSummary(error, 'enrollment').code, '42501');
+        return true;
+    });
+    strictEqual(f.awsCalls.at(-1)?.name, 'DeleteFacesCommand');
 });

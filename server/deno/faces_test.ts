@@ -1,5 +1,61 @@
 import { deepStrictEqual, strictEqual } from 'node:assert';
-import { type FaceSearch, FaceSession, type FaceStatus, type KnownPerson } from './faces.ts';
+import {
+    type FaceSearch,
+    FaceSession,
+    type FaceStatus,
+    type KnownPerson,
+    recognitionFirstMessage,
+} from './faces.ts';
+
+for (const stage of ['camera', 'recognition'] as const) {
+    Deno.test(`${stage} failure logs a safe diagnostic and never creates an enrollment`, async () => {
+        const failure = Object.assign(new Error('PRIVATE_UPSTREAM_DATA'), {
+            name: stage === 'camera' ? 'TimeoutError' : 'AccessDeniedException',
+        });
+        const session = new FaceSession('account', () => {
+            if (stage === 'camera') throw failure;
+            return Promise.resolve(new Uint8Array([1, 2, 3]));
+        }, {
+            search: () => {
+                throw failure;
+            },
+            enroll: () => {
+                throw new Error('Enrollment must not happen');
+            },
+            forget: () => Promise.resolve(),
+        }, {
+            load: () => Promise.resolve(''),
+            remember: () => Promise.resolve(false),
+            recall: () => Promise.resolve([]),
+        });
+        const logs: string[] = [];
+        const originalWarn = console.warn;
+        console.warn = (...args: unknown[]) => {
+            logs.push(args.join(' '));
+        };
+        try {
+            const result = await session.call('recognize_person');
+            strictEqual(result.status, 'unavailable');
+            strictEqual(result.observation_id, undefined);
+            strictEqual(session.memoryScope, 'account');
+            const diagnostic = JSON.parse(logs[0].slice(logs[0].indexOf('{')));
+            strictEqual(diagnostic.stage, stage);
+            strictEqual(diagnostic.code, stage === 'camera' ? 'TIMEOUT' : 'AccessDeniedException');
+            strictEqual(JSON.stringify([result, logs]).includes('PRIVATE_UPSTREAM_DATA'), false);
+        } finally {
+            console.warn = originalWarn;
+            session.close();
+        }
+    });
+}
+
+Deno.test('session start recognizes first and falls back to the account owner', () => {
+    const message = recognitionFirstMessage('Say hello to the user\n\nGreet with Guten Abend.', 'Amelie');
+    strictEqual(message.startsWith('Before greeting, call recognize_person once.'), true);
+    strictEqual(message.includes('status=known, greet that person by name'), true);
+    strictEqual(message.includes('greet the account owner, "Amelie", by name'), true);
+    strictEqual(message.endsWith('Say hello to the user\n\nGreet with Guten Abend.'), true);
+});
 
 const account = '00000000-0000-0000-0000-000000000001';
 const person: KnownPerson = {
@@ -79,14 +135,26 @@ function test(name: string, fn: (f: ReturnType<typeof fixture>) => Promise<void>
     });
 }
 
-test('unknown face is not the account owner and has no memory scope', async ({ session, calls }) => {
+test('the account owner is the default speaker with the account memory scope', async ({ session }) => {
+    session.ownerName = 'Amelie';
+    strictEqual(session.person, null);
+    strictEqual(session.memoryScope, account);
+    deepStrictEqual(await session.context(), {
+        status: 'account_owner',
+        person: { name: 'Amelie', relationship: 'account owner' },
+        instruction: 'Address the account owner by name.',
+    });
+});
+
+test('unknown face keeps the account owner as speaker but stays enrollable', async ({ session, calls }) => {
     const result = await session.call('recognize_person');
     strictEqual(result.status, 'unknown');
     strictEqual(typeof result.observation_id, 'string');
-    strictEqual(session.memoryScope, null);
-    strictEqual((await session.call('remember', { fact: 'I like cars' })).success, false);
-    strictEqual((await session.call('recall', { query: 'favorites' })).success, false);
-    strictEqual(calls.length, 0);
+    strictEqual(session.person, null);
+    strictEqual(session.memoryScope, account);
+    strictEqual((await session.call('remember', { fact: 'I like cars' })).success, true);
+    strictEqual((await session.call('recall', { query: 'favorites' })).success, true);
+    deepStrictEqual(calls.map((call) => call.args[0]), [account, account]);
 });
 
 test('enrollment needs explicit boolean consent and saves the exact observation', async ({ session, calls, photo }) => {
@@ -141,15 +209,16 @@ test('known person loads, writes and recalls only their own scoped memories', as
 });
 
 for (const status of ['no_face', 'multiple_faces', 'uncertain', 'unknown'] as const) {
-    test(`${status} clears a previous identity and cannot use its memories`, async ({ session, setResult, calls }) => {
+    test(`${status} falls back to the account owner and never uses the previous person's memories`, async ({ session, setResult, calls }) => {
         setResult({ status: 'known', person });
         await session.call('recognize_person');
         setResult({ status });
         const result = await session.call('recognize_person');
         strictEqual(result.status, status);
         strictEqual(session.person, null);
-        strictEqual((await session.call('recall', { query: 'secrets' })).success, false);
-        strictEqual(calls.length, 1);
+        strictEqual((await session.call('recall', { query: 'secrets' })).success, true);
+        strictEqual(calls.length, 2);
+        deepStrictEqual(calls[1], { kind: 'recall', args: [account, 'secrets'] });
     });
 }
 
@@ -161,13 +230,13 @@ test('API outage clears identity without creating an enrollable unknown face', a
     strictEqual(result.success, false);
     strictEqual(result.status, 'unavailable');
     strictEqual(result.observation_id, undefined);
-    strictEqual(session.memoryScope, null);
+    strictEqual(session.memoryScope, account);
 });
 
 test("a backend cannot attach another account's person", async ({ session, setResult }) => {
     setResult({ status: 'known', person: { ...person, account_id: 'other-account' } });
     strictEqual((await session.call('recognize_person')).success, false);
-    strictEqual(session.memoryScope, null);
+    strictEqual(session.memoryScope, account);
 });
 
 test('memory failure never reports a successful save', async ({ session, setResult, disableMemory }) => {
@@ -183,7 +252,7 @@ test('forget requires confirmation and clears identity', async ({ session, setRe
     strictEqual((await session.call('forget_person', { confirmed: false })).success, false);
     strictEqual((await session.call('forget_person', { confirmed: true })).success, true);
     strictEqual(calls.at(-1)?.kind, 'forget');
-    strictEqual(session.memoryScope, null);
+    strictEqual(session.memoryScope, account);
 });
 
 test('close discards pending enrollment', async ({ session, calls }) => {

@@ -796,17 +796,17 @@ export const connectToGemini = async ({
         // generation runs while the new Live session is being set up.
         if (pushImage) pushGreetingImage(target, pushImage);
         const [chatHistory, memoryContext] = await Promise.all([
-            faces ? Promise.resolve([]) : getChatHistory(supabase, user.user_id, target.key ?? null, false),
+            getChatHistory(supabase, user.user_id, target.key ?? null, false),
             // The characters share the concierge's Memory Bank, so they know
             // what the user told James (and each other) earlier.
-            faces ? Promise.resolve('') : loadMemoryContext(user.user_id),
+            loadMemoryContext(user.user_id),
         ]);
         const prompt = createSystemPrompt(chatHistory, payload) +
             (memoryContext ? `\n\n${memoryContext}` : '') +
             (faces ? '\n\n' + FACE_INSTRUCTIONS : '');
         const greeting = faces
-            ? 'Continue with the current speaker in your new character. Current speaker data: ' +
-                JSON.stringify(await faces.context()) + '. Greet neutrally if unidentified.'
+            ? 'Continue with the current speaker in your new character and greet them by name. Current speaker data: ' +
+                JSON.stringify(await faces.context()) + '.'
             : createFirstMessage(payload);
         const voice = target.oai_voice ?? defaultGeminiVoice;
         await startSession(

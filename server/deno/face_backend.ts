@@ -42,12 +42,12 @@ export class RekognitionFaceBackend implements FaceBackend {
     private aws(): RekognitionClient {
         this.db();
         if (!this.client) {
-            const region = Deno.env.get('AWS_REGION');
-            const accessKeyId = Deno.env.get('AWS_ACCESS_KEY_ID');
-            const secretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY');
-            if (!region || !accessKeyId || !secretAccessKey) {
-                throw new Error('AWS face recognition is not configured.');
-            }
+            const region = Deno.env.get('AWS_REGION')?.trim();
+            const accessKeyId = Deno.env.get('AWS_ACCESS_KEY_ID')?.trim();
+            const secretAccessKey = Deno.env.get('AWS_SECRET_ACCESS_KEY')?.trim();
+            if (!region) throw new Error('AWS_REGION is missing.');
+            if (!accessKeyId) throw new Error('AWS_ACCESS_KEY_ID is missing.');
+            if (!secretAccessKey) throw new Error('AWS_SECRET_ACCESS_KEY is missing.');
             this.client = new RekognitionClient({
                 region,
                 credentials: {
@@ -106,7 +106,7 @@ export class RekognitionFaceBackend implements FaceBackend {
             if (!best.Face?.FaceId) return { status: 'uncertain' };
             const { data, error } = await this.db().from('known_people').select('*')
                 .eq('account_id', this.accountId).eq('face_id', best.Face.FaceId).maybeSingle();
-            if (error) throw new Error('Face profile lookup failed.');
+            if (error) throw new Error('Face profile lookup failed.', { cause: error });
             // An orphan AWS template must never be guessed or reassigned.
             if (!data) return { status: 'uncertain' };
             return { status: 'known', person: data as KnownPerson };
@@ -115,7 +115,9 @@ export class RekognitionFaceBackend implements FaceBackend {
                 // Verify the migration exists before offering enrollment.
                 const { error: dbError } = await this.db().from('known_people').select('person_id')
                     .eq('account_id', this.accountId).limit(1);
-                if (dbError) throw new Error('Face profile storage unavailable.');
+                if (dbError) {
+                    throw new Error('Face profile storage unavailable.', { cause: dbError });
+                }
                 return { status: 'unknown' };
             }
             throw error;
@@ -173,7 +175,9 @@ export class RekognitionFaceBackend implements FaceBackend {
                     'Face enrollment rollback failed; inspect the account collection for orphan templates.',
                 );
             }
-            throw new Error('Profile could not be saved. Please try recognition again.');
+            throw new Error('Profile could not be saved. Please try recognition again.', {
+                cause: error,
+            });
         }
         return person;
     }
@@ -194,7 +198,7 @@ export class RekognitionFaceBackend implements FaceBackend {
     async relationships(): Promise<Array<{ display_name: string; relationship: string }>> {
         const { data, error } = await this.db().from('known_people')
             .select('display_name, relationship').eq('account_id', this.accountId).limit(100);
-        if (error) throw new Error('Known people could not be loaded.');
+        if (error) throw new Error('Known people could not be loaded.', { cause: error });
         return data ?? [];
     }
 
@@ -203,7 +207,11 @@ export class RekognitionFaceBackend implements FaceBackend {
         await this.deleteFaces([person.face_id]);
         const { error } = await this.db().from('known_people').delete()
             .eq('account_id', this.accountId).eq('person_id', person.person_id);
-        if (error) throw new Error('Face removed, but profile deletion failed. Please retry.');
+        if (error) {
+            throw new Error('Face removed, but profile deletion failed. Please retry.', {
+                cause: error,
+            });
+        }
     }
 }
 
@@ -211,10 +219,13 @@ export function createFaceSession(
     accountId: string,
     capture: () => Promise<Uint8Array>,
     supabase: SupabaseClient | null,
+    ownerName = '',
 ): FaceSession {
-    return new FaceSession(accountId, capture, new RekognitionFaceBackend(accountId, supabase), {
+    const session = new FaceSession(accountId, capture, new RekognitionFaceBackend(accountId, supabase), {
         load: loadMemoryContext,
         remember: rememberFact,
         recall: searchMemories,
     });
+    session.ownerName = ownerName;
+    return session;
 }

@@ -32,28 +32,31 @@ function payload(story = false): IPayload {
     };
 }
 
-Deno.test('concierge treats Amelie as account owner, not the current speaker', () => {
+Deno.test('concierge addresses Amelie as account owner and default speaker', () => {
     const prompt = createConciergePrompt(payload());
-    ok(prompt.includes('account owner'));
-    strictEqual(prompt.includes("The user's name is Amelie"), false);
+    ok(prompt.includes("The user's name is Amelie"));
+    ok(prompt.includes('default speaker'));
     const legacy = payload();
     legacy.speakerRecognition = false;
-    ok(createConciergePrompt(legacy).includes("The user's name is Amelie"));
+    const legacyPrompt = createConciergePrompt(legacy);
+    ok(legacyPrompt.includes("The user's name is Amelie"));
+    strictEqual(legacyPrompt.includes('account owner'), false);
 });
 
-Deno.test('personality and story prompts exclude account history, age and private interests', () => {
+Deno.test('personality and story prompts keep the account owner as default speaker', () => {
     for (const story of [false, true]) {
         const p = payload(story);
-        const history = [{ content: 'ACCOUNT_PRIVATE_HISTORY' }] as IConversation[];
+        const history = [
+            { role: 'user', content: 'ACCOUNT_HISTORY', created_at: new Date().toISOString() },
+        ] as IConversation[];
         const prompt = createSystemPrompt(history, p);
         ok(prompt.includes('Speak playfully.'));
         ok(prompt.includes('Soft voice.'));
-        ok(prompt.includes('German'));
-        ok(prompt.includes('account owner'));
-        strictEqual(prompt.includes('ACCOUNT_PRIVATE_HISTORY'), false);
-        strictEqual(prompt.includes('ACCOUNT_PRIVATE_INTEREST'), false);
-        strictEqual(prompt.includes('7 years old'), false);
-        strictEqual(prompt.includes('name is: Amelie'), false);
+        ok(prompt.includes('Amelie'));
+        ok(prompt.includes('ACCOUNT_PRIVATE_INTEREST'));
+        ok(prompt.includes('ACCOUNT_HISTORY'));
+        ok(prompt.includes('default speaker'));
+        if (!story) ok(prompt.includes('German'));
     }
 });
 

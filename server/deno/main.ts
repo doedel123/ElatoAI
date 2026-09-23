@@ -22,7 +22,7 @@ import {
     serviceSupabase,
 } from './supabase.ts';
 import { createFaceSession } from './face_backend.ts';
-import { FACE_INSTRUCTIONS } from './faces.ts';
+import { FACE_INSTRUCTIONS, recognitionFirstMessage } from './faces.ts';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { isDev } from './utils.ts';
 import { createConciergePrompt } from './concierge.ts';
@@ -460,8 +460,30 @@ async function handleConnection(
     const selectedProvider = resolveProvider(user, conciergeMode);
     const faces = Deno.env.get('FACE_RECOGNITION_ENABLED') === 'true' && opts.capturePhoto &&
             ['gemini', 'openai'].includes(selectedProvider)
-        ? createFaceSession(user.user_id, () => opts.capturePhoto!(false), serviceSupabase)
+        ? createFaceSession(
+            user.user_id,
+            () => opts.capturePhoto!(false),
+            serviceSupabase,
+            user.supervisee_name ?? '',
+        )
         : undefined;
+    if (faces) {
+        console.info(`Face recognition: enabled (provider=${selectedProvider})`);
+        const missing = ['AWS_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']
+            .filter((name) => !Deno.env.get(name)?.trim());
+        if (!serviceSupabase) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+        if (missing.length) {
+            // Log variable names only; never expose credential values.
+            console.warn(`Face recognition configuration missing: ${missing.join(', ')}`);
+        }
+    } else {
+        const reason = Deno.env.get('FACE_RECOGNITION_ENABLED') !== 'true'
+            ? 'FACE_RECOGNITION_ENABLED must be true in the server runtime environment'
+            : !opts.capturePhoto
+            ? 'camera capture is unavailable'
+            : `unsupported provider ${selectedProvider}`;
+        console.info(`Face recognition: disabled (${reason})`);
+    }
     if (faces) payload.speakerRecognition = true;
     if (opts.emitTextEvents) {
         if (faces) {
@@ -479,7 +501,8 @@ async function handleConnection(
     if (conciergeMode) {
         // Concierge entry: general Gemini Live agent with Memory Bank context
         // instead of the DB personality. Chat history is replaced by memory.
-        const memoryContext = faces ? '' : await loadMemoryContext(user.user_id);
+        // The device's user is the default speaker, with or without face recognition.
+        const memoryContext = await loadMemoryContext(user.user_id);
         systemPrompt = createConciergePrompt(payload) +
             (memoryContext ? `\n\n${memoryContext}` : '');
         firstMessage =
@@ -487,7 +510,7 @@ async function handleConnection(
             greetingTimeInstruction();
         provider = resolveProvider(user, true);
     } else {
-        const chatHistory = faces ? [] : await getChatHistory(
+        const chatHistory = await getChatHistory(
             supabase,
             user.user_id,
             user.personality?.key ?? null,
@@ -501,10 +524,11 @@ async function handleConnection(
             console.warn('Personality has no provider configured; falling back to openai');
         }
     }
+    // Recognize once at the start: a known person is greeted by name, anyone
+    // else (unknown, no face, recognition failure) gets the device's user.
     if (faces) {
         systemPrompt += '\n\n' + FACE_INSTRUCTIONS;
-        firstMessage = 'Call recognize_person before greeting. Follow its result: greet a known person by name, ' +
-            'ask an unknown person their name, or greet neutrally if recognition is unavailable. ' + greetingTimeInstruction();
+        firstMessage = recognitionFirstMessage(firstMessage, user.supervisee_name ?? '');
     }
     const personalityImageBase64 = await getPersonalityImageBase64(user.personality);
 

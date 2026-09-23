@@ -1591,6 +1591,7 @@
         function handleCustomMessage(payload) {
             if (payload?.action === 'face_status') {
                 renderFaceStatus(payload);
+                log('FACE', `Gesichtserkennung: ${payload.status}`, 'vision');
                 return;
             }
             if (payload?.action === 'show_image' && payload.data) {
@@ -1607,7 +1608,7 @@
             const states = {
                 disconnected: ['Nicht verbunden', '', 'Verbinde den Simulator, um den Erkennungsstatus zu sehen.'],
                 waiting: ['Warte auf Status', '', 'Der Server hat noch keinen Erkennungsstatus gemeldet.'],
-                disabled: ['Deaktiviert', '', 'Gesichtserkennung ist für diese Verbindung nicht aktiviert.'],
+                disabled: ['Deaktiviert', '', 'Gesichtserkennung ist serverseitig deaktiviert oder für diese Verbindung nicht verfügbar. Prüfe FACE_RECOGNITION_ENABLED=true in Deno Production und das Deno-Log.'],
                 unidentified: ['Bereit', '', 'Noch keine aktuelle Erkennung. Die Erkennung wird im Gespräch gestartet.'],
                 recognizing: ['Wird erkannt …', 'pending', 'Das aktuelle Kamerabild wird geprüft.'],
                 known: ['Erkannt', 'known', 'Diese Person ist der aktuelle Gesprächspartner.'],
