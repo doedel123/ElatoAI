@@ -38,18 +38,21 @@ der Gemini-Concierge, alle darüber gestarteten Personalities sowie direkte Gemi
 OpenAI-Sessions. Der Account bleibt unverändert; die sprechende Person erhält ein eigenes
 Profil in `known_people` unter dessen `account_id`.
 
-Beispiel: James fragt ein unbekanntes Gesicht nach dem Namen. „Leo, Amelies Bruder“
+Beispiel: Reachy fragt ein unbekanntes Gesicht nach dem Namen. „Leo, Amelies Bruder“
 wird nach einer ausdrücklichen Zustimmung zum Merken des Gesichts gespeichert. Beim
-nächsten Erkennen erhalten James und die Personalities Leos Namen, die Beziehung und
+nächsten Erkennen erhalten Reachy und die Personalities Leos Namen, die Beziehung und
 seine eigenen Erinnerungen. Die angegebenen Beziehungen der bekannten Personen sind
 innerhalb des Accounts verfügbar, persönliche Erinnerungen bleiben personenbezogen.
 Auch Amelie muss einmal registriert werden; der DB-Name allein identifiziert kein Gesicht.
 
-Der Web-Simulator zeigt unter der Kamera die aktuell erkannte Person mit Namen und Beziehung.
+Der Web-Simulator zeigt unter der Kamera die aktuell erkannte Person mit Namen und Beziehung
+sowie den sichtbaren Gesichtsausdruck aus dem Erkennungsfoto (z. B. „😊 Wirkt fröhlich“).
 Die Anzeige folgt den Serverereignissen auch beim Einlernen, bei unsicheren Treffern und bei
 Fehlern. Beim erneuten Erkennen oder Trennen der Verbindung wird die vorherige Person ausgeblendet.
 Ist die Funktion ausgeschaltet, erscheint „Deaktiviert“. Dazu sendet der xiaozhi-Adapter eine
-`custom`-Nachricht mit `action: "face_status"`; sie enthält keine Gesichtsvorlagen oder Memories.
+`custom`-Nachricht mit `action: "face_status"` und den Feldern `status`, `person` und
+`expression`; sie enthält keine Gesichtsvorlagen, Fotos oder Memories. Die Firmware wertet
+`face_status` derzeit nicht aus.
 
 ### Aktivierung
 
@@ -132,6 +135,13 @@ Benötigte AWS-IAM-Rechte (AWS-Account-ID und Region ersetzen):
   Sitzungsspeicher. Die Registrierung verwendet genau dieses Foto und benötigt dessen
   `observation_id` sowie `consent=true`. Gesichtsfotos landen nicht im wiederverwendbaren
   Kamera-Cache und werden nicht an das Gesprächsmodell geschickt.
+- `DetectFaces` fordert neben `DEFAULT` nur `EMOTIONS` an (keine Alters- oder
+  Geschlechtsschätzung). Ist ein Gesichtsausdruck mit mindestens 80 % Konfidenz erkennbar
+  (nicht `CALM`), erhält das Gesprächsmodell im `recognize_person`-Ergebnis
+  `visible_expression` (z. B. `happy`, `sad`) als vorsichtigen Hinweis. Das ist der sichtbare
+  Ausdruck in diesem Foto, keine verlässliche Stimmung; er wird nicht protokolliert und nur
+  zusammen mit dem zugehörigen Erkennungsergebnis in `face_status` angezeigt. Rekognition-Kosten
+  und IAM-Rechte ändern sich dadurch nicht.
 - Persönliche Memory-Bank-Einträge verwenden den Scope
   `<account_uuid>:person:<person_uuid>`. Alte Account-Erinnerungen und gemischte Chatverläufe
   werden bei aktiver Gesichtserkennung nicht geladen oder automatisch einer Person zugeordnet.

@@ -9,9 +9,20 @@ export interface KnownPerson {
     face_id: string;
 }
 
+/** `expression`: clearly visible facial expression of a single detected face, if any. */
 export type FaceSearch =
-    | { status: 'known'; person: KnownPerson }
-    | { status: 'unknown' | 'no_face' | 'multiple_faces' | 'uncertain' };
+    | { status: 'known'; person: KnownPerson; expression?: string }
+    | { status: 'unknown' | 'no_face' | 'multiple_faces' | 'uncertain'; expression?: string };
+
+/** Model hint; the expression is never logged. Devices only get it as a FaceStatus label. */
+function expressionHint(result: FaceSearch): Record<string, string> {
+    if (!result.expression) return {};
+    return {
+        visible_expression: result.expression,
+        expression_note:
+            'Only how the face looked in this one photo, not a reliable feeling. Never state it as a fact; if it fits naturally, react warmly or gently ask how they are.',
+    };
+}
 
 /** Display-only status; never send biometric IDs, images or memories to a device. */
 export interface FaceStatus {
@@ -24,7 +35,17 @@ export interface FaceStatus {
         | 'unavailable'
         | 'closed';
     person: { name: string; relationship: string } | null;
+    /** Visible facial expression in the latest recognition photo, shown next to its result. */
+    expression?: string;
 }
+
+/** Statuses that belong to the photo the expression was read from. */
+const EXPRESSION_STATUSES: ReadonlySet<FaceStatus['status']> = new Set([
+    'known',
+    'unknown',
+    'uncertain',
+    'enrolling',
+]);
 
 export interface FaceBackend {
     search(image: Uint8Array): Promise<FaceSearch>;
@@ -142,6 +163,7 @@ export class FaceSession {
     /** Display name of the account owner (the device's user), the default speaker. */
     ownerName = '';
     private pending?: { id: string; image: Uint8Array; expires: number };
+    private expression?: string;
     private expiryTimer?: ReturnType<typeof setTimeout>;
     private busy = false;
     private closed = false;
@@ -171,13 +193,17 @@ export class FaceSession {
     }
 
     private notifyStatus(listener: (state: FaceStatus) => void): void {
+        const state: FaceStatus = {
+            status: this.displayStatus,
+            person: this.displayStatus === 'known' && this.person
+                ? { name: this.person.display_name, relationship: this.person.relationship }
+                : null,
+        };
+        if (this.expression && EXPRESSION_STATUSES.has(this.displayStatus)) {
+            state.expression = this.expression;
+        }
         try {
-            listener({
-                status: this.displayStatus,
-                person: this.displayStatus === 'known' && this.person
-                    ? { name: this.person.display_name, relationship: this.person.relationship }
-                    : null,
-            });
+            listener(state);
         } catch {
             // A disconnected display must not break recognition or enrollment.
             console.warn('Face status could not be delivered to the device.');
@@ -244,6 +270,7 @@ export class FaceSession {
         try {
             if (name === 'recognize_person') {
                 this.person = null;
+                this.expression = undefined;
                 this.clearPending();
                 this.publishStatus('recognizing');
                 stage = 'camera';
@@ -251,9 +278,10 @@ export class FaceSession {
                 stage = 'recognition';
                 const result = await this.backend.search(image);
                 if (this.closed) return { success: false, error: 'Session closed.' };
+                this.expression = result.expression;
                 if (result.status === 'known') {
                     this.accept(result.person);
-                    return { success: true, ...await this.context() };
+                    return { success: true, ...await this.context(), ...expressionHint(result) };
                 }
                 if (result.status === 'unknown') {
                     this.pending = {
@@ -272,6 +300,7 @@ export class FaceSession {
                         observation_id: this.pending.id,
                         instruction:
                             'This face is not enrolled. Keep talking to the account owner unless the speaker said they are someone else; only then ask their name, optionally their relationship, and permission to remember their face.',
+                        ...expressionHint(result),
                     };
                 }
                 this.publishStatus(result.status);
@@ -280,6 +309,7 @@ export class FaceSession {
                     status: result.status,
                     instruction:
                         'No other enrolled person recognized. Keep talking to the account owner; do not enroll this observation.',
+                    ...expressionHint(result),
                 };
             }
             if (name === 'enroll_person') {

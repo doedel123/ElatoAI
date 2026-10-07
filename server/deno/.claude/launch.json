@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "deno-server",
+      "runtimeExecutable": "deno",
+      "runtimeArgs": ["run", "-A", "--env-file=.env", "main.ts"],
+      "port": 8000
+    }
+  ]
+}

@@ -324,8 +324,8 @@ export async function stylizeImage(
 
 const greetingImageCache = new Map<string, Promise<GeneratedImage>>();
 
-const CONCIERGE_VISUAL = "James, a friendly elegant concierge with a warm smile, " +
-    "wearing a smart dark suit";
+const CONCIERGE_VISUAL = "a small cute friendly white robot with a round head, " +
+    "two big round black eyes and two thin antennas on top";
 
 async function loadPortrait(key: string | undefined): Promise<Uint8Array | null> {
     if (!key || !/^[a-zA-Z0-9_-]+$/.test(key)) return null;
@@ -341,7 +341,7 @@ async function loadPortrait(key: string | undefined): Promise<Uint8Array | null>
 }
 
 /**
- * Greeting image for a character (null = concierge James), themed for the
+ * Greeting image for a character (null = concierge Reachy), themed for the
  * given time of day. Cached; concurrent callers share one generation.
  */
 export function generateGreetingImage(

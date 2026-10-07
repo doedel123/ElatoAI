@@ -605,6 +605,23 @@
             overflow-wrap: anywhere;
         }
 
+        .face-person-expression {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 10px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent-amber);
+            background: rgba(245, 158, 11, 0.12);
+        }
+
+        .face-person-expression[hidden] {
+            display: none;
+        }
+
         .face-status-hint {
             font-size: 12px;
             line-height: 1.6;
@@ -984,6 +1001,7 @@
                 <div role="status" aria-live="polite" aria-atomic="true">
                     <div id="face-name" class="face-person-name">Noch keine Person erkannt</div>
                     <div id="face-relationship" class="face-person-relationship" hidden></div>
+                    <div id="face-expression" class="face-person-expression" hidden></div>
                     <p id="face-hint" class="face-status-hint">Verbinde den Simulator, um den Erkennungsstatus zu sehen.</p>
                 </div>
             </section>
@@ -1591,7 +1609,8 @@
         function handleCustomMessage(payload) {
             if (payload?.action === 'face_status') {
                 renderFaceStatus(payload);
-                log('FACE', `Gesichtserkennung: ${payload.status}`, 'vision');
+                const mood = Object.hasOwn(FACE_EXPRESSIONS, payload.expression) ? FACE_EXPRESSIONS[payload.expression] : null;
+                log('FACE', `Gesichtserkennung: ${payload.status}${mood ? ` · Stimmung: ${mood[1]}` : ''}`, 'vision');
                 return;
             }
             if (payload?.action === 'show_image' && payload.data) {
@@ -1603,6 +1622,17 @@
                 addGalleryThumb(imgSrc, 'AI Generated');
             }
         }
+
+        // Visible facial expression from Rekognition, not a reliable feeling.
+        const FACE_EXPRESSIONS = {
+            happy: ['😊', 'fröhlich'],
+            sad: ['😢', 'traurig'],
+            angry: ['😠', 'verärgert'],
+            confused: ['😕', 'verwirrt'],
+            disgusted: ['🤢', 'angewidert'],
+            surprised: ['😮', 'überrascht'],
+            fearful: ['😨', 'ängstlich'],
+        };
 
         function renderFaceStatus(payload) {
             const states = {
@@ -1632,6 +1662,11 @@
             const relationship = document.getElementById('face-relationship');
             relationship.textContent = person && typeof person.relationship === 'string' ? person.relationship : '';
             relationship.hidden = !relationship.textContent;
+            const expression = document.getElementById('face-expression');
+            const mood = Object.hasOwn(FACE_EXPRESSIONS, payload.expression) ? FACE_EXPRESSIONS[payload.expression] : null;
+            expression.textContent = mood ? `${mood[0]} Wirkt ${mood[1]}` : '';
+            expression.title = mood ? 'Gesichtsausdruck im Erkennungsfoto, keine verlässliche Stimmung' : '';
+            expression.hidden = !mood;
             document.getElementById('face-hint').textContent = hint;
         }
 

@@ -112,6 +112,27 @@ Deno.test('known match uses account-scoped AWS collection and DB lookup', async 
     ]);
 });
 
+Deno.test('clear facial expressions are reported without age or gender attributes', async () => {
+    const withEmotion = (Type: string, Confidence: number) => ({
+        FaceDetails: [{
+            ...oneFace.FaceDetails[0],
+            Emotions: [{ Type: 'CALM', Confidence: 10 }, { Type, Confidence }],
+        }],
+    });
+    const f = fixture([withEmotion('HAPPY', 95), {
+        FaceMatches: [{ Similarity: 99.8, Face: { FaceId: 'face-1' } }],
+    }]);
+    deepStrictEqual(await f.backend.search(image), { status: 'known', person, expression: 'happy' });
+    deepStrictEqual(f.awsCalls[0].input.Attributes, ['DEFAULT', 'EMOTIONS']);
+    const unknown = fixture([withEmotion('SAD', 90), notFound()]);
+    deepStrictEqual(await unknown.backend.search(image), { status: 'unknown', expression: 'sad' });
+    // Weak signals and the resting face carry no expression.
+    for (const [type, confidence] of [['HAPPY', 60], ['CALM', 99]] as const) {
+        const weak = fixture([withEmotion(type, confidence), notFound()]);
+        deepStrictEqual(await weak.backend.search(image), { status: 'unknown' });
+    }
+});
+
 Deno.test('weak or ambiguous matches are uncertain, never new faces', async () => {
     for (const scores of [[98.9], [99.9, 98]]) {
         const f = fixture([oneFace, {

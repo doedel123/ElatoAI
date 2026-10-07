@@ -2,6 +2,7 @@ import {
     CreateCollectionCommand,
     DeleteFacesCommand,
     DetectFacesCommand,
+    type FaceDetail,
     IndexFacesCommand,
     RekognitionClient,
     SearchFacesByImageCommand,
@@ -12,6 +13,28 @@ import { loadMemoryContext, rememberFact, searchMemories } from './memory.ts';
 
 const MATCH_THRESHOLD = 99;
 const MATCH_MARGIN = 3;
+const EXPRESSION_MIN_CONFIDENCE = 80;
+// CALM is the resting face and UNKNOWN carries no signal; neither is worth a reaction.
+const EXPRESSIONS: Record<string, string> = {
+    HAPPY: 'happy',
+    SAD: 'sad',
+    ANGRY: 'angry',
+    CONFUSED: 'confused',
+    DISGUSTED: 'disgusted',
+    SURPRISED: 'surprised',
+    FEAR: 'fearful',
+};
+
+/** Clearly visible facial expression of a detected face, if any. Not an inner feeling. */
+export function visibleExpression(face: FaceDetail): string | undefined {
+    let top: { type?: string; confidence: number } = { confidence: 0 };
+    for (const emotion of face.Emotions ?? []) {
+        const confidence = emotion.Confidence ?? 0;
+        if (confidence > top.confidence) top = { type: emotion.Type, confidence };
+    }
+    if (!top.type || top.confidence < EXPRESSION_MIN_CONFIDENCE) return undefined;
+    return EXPRESSIONS[top.type];
+}
 
 /** A collection is derived exclusively from the authenticated account, never model arguments. */
 export function faceCollectionId(accountId: string): string {
@@ -69,7 +92,8 @@ export class RekognitionFaceBackend implements FaceBackend {
         const detected = await aws.send(
             new DetectFacesCommand({
                 Image: { Bytes: image },
-                Attributes: ['DEFAULT'],
+                // Emotions only; no age or gender estimation.
+                Attributes: ['DEFAULT', 'EMOTIONS'],
             }),
             { abortSignal: AbortSignal.timeout(10_000) },
         );
@@ -82,6 +106,13 @@ export class RekognitionFaceBackend implements FaceBackend {
             (face.Quality?.Sharpness ?? 0) < 20
         ) return { status: 'uncertain' };
 
+        const result = await this.match(aws, image);
+        const expression = visibleExpression(face);
+        return expression ? { ...result, expression } : result;
+    }
+
+    /** Identity lookup for a single, clearly detected face. */
+    private async match(aws: RekognitionClient, image: Uint8Array): Promise<FaceSearch> {
         try {
             // Request weaker matches too: a near match is uncertain, not a new person.
             const result = await aws.send(

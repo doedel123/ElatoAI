@@ -528,6 +528,7 @@ export class XiaozhiWebSocketAdapter implements ClientWebSocket {
                         action: "face_status",
                         status: message.status,
                         person: message.person ?? null,
+                        expression: message.expression ?? null,
                     },
                 }));
                 break;

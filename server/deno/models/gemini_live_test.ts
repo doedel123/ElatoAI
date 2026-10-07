@@ -11,6 +11,7 @@ Deno.env.set('SUPABASE_KEY', 'test-key');
 Deno.env.set('GEMINI_API_KEY', 'test-key');
 Deno.env.delete('SUPABASE_SERVICE_ROLE_KEY');
 const { connectToGemini } = await import('./gemini.ts');
+const { CONCIERGE_VOICE } = await import('../concierge.ts');
 
 async function captureLiveMessages(conciergeMode: boolean, model?: string) {
     const previousModel = Deno.env.get('GEMINI_LIVE_MODEL');
@@ -91,6 +92,11 @@ Deno.test('Gemini 3.8 is the default for concierge and direct personalities', as
         const { setup } = await captureLiveMessages(concierge);
         strictEqual(setup.model, 'models/gemini-3.8-live');
         strictEqual(setup.tools.some((tool: any) => 'googleSearch' in tool), concierge);
+        // The concierge has its own voice; direct sessions use the personality's voice.
+        strictEqual(
+            setup.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName,
+            concierge ? CONCIERGE_VOICE : 'Kore',
+        );
     }
 });
 
@@ -98,7 +104,7 @@ Deno.test('Gemini Live setup preserves audio and makes identity and other tools 
     const { setup } = await captureLiveMessages(true);
     deepStrictEqual(setup.generationConfig.responseModalities, ['AUDIO']);
     deepStrictEqual(setup.generationConfig.speechConfig, {
-        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: CONCIERGE_VOICE } },
     });
     ok(setup.systemInstruction.parts.some((part: any) => part.text.includes('German')));
     deepStrictEqual(setup.inputAudioTranscription, {});

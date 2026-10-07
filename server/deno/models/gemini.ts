@@ -22,7 +22,7 @@ import {
     getChatHistory,
     uploadPersonalityImage,
 } from '../supabase.ts';
-import { listPersonalities, resolvePersonality, setUserPersonality } from '../concierge.ts';
+import { CONCIERGE_VOICE, listPersonalities, resolvePersonality, setUserPersonality } from '../concierge.ts';
 import {
     type GeneratedImage,
     generateSceneImage,
@@ -62,7 +62,7 @@ export const connectToGemini = async ({
     faces,
 }: ProviderArgs) => {
     const { user, supabase } = payload;
-    const voiceName = user.personality?.oai_voice ?? defaultGeminiVoice;
+    const voiceName = conciergeMode ? CONCIERGE_VOICE : user.personality?.oai_voice ?? defaultGeminiVoice;
     // Computed per session (not once at connect): after a concierge
     // personality switch the active personality changes, and the nudge must
     // follow it — otherwise story personas never learn they have a screen.
@@ -171,7 +171,7 @@ export const connectToGemini = async ({
         });
     }
     // Switching and memory stay available inside the personalities too, so the
-    // user can go back to James and the characters share the Memory Bank.
+    // user can go back to Reachy and the characters share the Memory Bank.
     if (conciergeMode) {
         functionDeclarations.push({
             name: 'list_personalities',
@@ -339,7 +339,7 @@ export const connectToGemini = async ({
     // the model's announcement audio is not cut off mid-word.
     let pendingSwitch: IPersonality | null = null;
     // Once the switch is decided, the outgoing agent keeps generating and starts
-    // acting as the new character ("James introduces himself as Elsa"). Drop its
+    // acting as the new character ("Reachy introduces itself as Elsa"). Drop its
     // audio and subtitles from there on; the announcement is already queued.
     let outgoingSessionMuted = false;
     // Grace period so the queued announcement finishes before the new session's
@@ -798,7 +798,7 @@ export const connectToGemini = async ({
         const [chatHistory, memoryContext] = await Promise.all([
             getChatHistory(supabase, user.user_id, target.key ?? null, false),
             // The characters share the concierge's Memory Bank, so they know
-            // what the user told James (and each other) earlier.
+            // what the user told Reachy (and each other) earlier.
             loadMemoryContext(user.user_id),
         ]);
         const prompt = createSystemPrompt(chatHistory, payload) +

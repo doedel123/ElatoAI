@@ -357,3 +357,32 @@ test('broken status listener cannot interrupt face enrollment', async ({ session
     });
     strictEqual(result.saved, true);
 });
+
+test('a visible expression is a model hint and a display label of its own photo', async ({ session, setResult }) => {
+    const statuses: FaceStatus[] = [];
+    session.subscribeStatus((state) => statuses.push(state));
+    setResult({ status: 'known', person, expression: 'happy' });
+    const known = await session.call('recognize_person');
+    strictEqual(known.visible_expression, 'happy');
+    strictEqual(typeof known.expression_note, 'string');
+    deepStrictEqual(statuses.slice(-2), [
+        { status: 'recognizing', person: null },
+        { status: 'known', person: { name: 'Leo', relationship: 'Bruder von Amelie' }, expression: 'happy' },
+    ]);
+    setResult({ status: 'unknown', expression: 'sad' });
+    strictEqual((await session.call('recognize_person')).visible_expression, 'sad');
+    strictEqual(statuses.at(-1)?.expression, 'sad');
+    setResult({ status: 'uncertain' });
+    strictEqual('visible_expression' in await session.call('recognize_person'), false);
+    strictEqual('expression' in statuses.at(-1)!, false);
+});
+
+test('closing the session clears the shown expression', async ({ session, setResult }) => {
+    const statuses: FaceStatus[] = [];
+    session.subscribeStatus((state) => statuses.push(state));
+    setResult({ status: 'unknown', expression: 'surprised' });
+    await session.call('recognize_person');
+    strictEqual(statuses.at(-1)?.expression, 'surprised');
+    session.close();
+    deepStrictEqual(statuses.at(-1), { status: 'closed', person: null });
+});
